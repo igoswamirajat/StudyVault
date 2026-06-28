@@ -106,6 +106,8 @@ cd StudyVault
 
 # Install dependencies
 npm install
+if this fails use:
+npm install --legacy-peer-deps
 # or
 bun install
 
@@ -131,17 +133,6 @@ Required only if your folder has subfolders or you want accurate file type detec
 2. Create a project → Enable the **Google Drive API**
 3. Create an API key under Credentials
 4. Paste it in the Onboarding page or Settings
-
----
-
-## Roadmap
-
-- [ ] AI-powered quiz generation from notes and summaries
-- [ ] AI flashcard generation
-- [ ] AI study recap at end of session
-- [ ] Sorting resources by upload date, modified date, name within folders
-- [ ] Server-side Drive video proxy for native video controls on streamed files
-- [ ] Mobile layout
 
 ---
 
