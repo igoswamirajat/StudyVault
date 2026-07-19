@@ -8,6 +8,8 @@ export type RevisionFlag = "important" | "revision" | "difficult" | "done";
 
 export type ResourceStatus = "active" | "trashed";
 
+export type ResourceSource = "drive" | "telegram" | "local";
+
 export interface Resource {
   id: string;
   name: string;
@@ -36,6 +38,10 @@ export interface Resource {
   difficultyRating?: number | null;
   folderColor?: string | null;
   folderIcon?: string | null;
+  // v8: multi-source support
+  source?: ResourceSource;
+  telegramFileId?: string | null;
+  telegramMessageId?: number | null;
 }
 
 
@@ -138,7 +144,7 @@ export interface FolderRow {
   name: string;
   parentPath: string;
   createdAt: number;
-  source: "drive" | "user";
+  source: "drive" | "user" | "telegram";
   // v7
   color?: string | null;
   icon?: string | null;
@@ -224,6 +230,16 @@ export class StudyVaultDB extends Dexie {
         if (!r.tags) r.tags = [];
       });
     });
+    this.version(8).stores({
+      resources:
+        "id, type, dayAssignment, orderIndex, isDownloaded, lastOpenedAt, name, folderPath, parentFolderId, revisionFlag, status, trashedAt, *tags, source",
+    }).upgrade(async (tx) => {
+      await tx.table("resources").toCollection().modify((r: Resource) => {
+        if (!r.source) {
+          r.source = r.driveId ? "drive" : "local";
+        }
+      });
+    });
   }
 }
 
@@ -264,5 +280,8 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   quizTimerEnabled: false,
   driveId: null,
   driveApiKey: null,
+  telegramBotToken: null,
+  telegramChatId: null,
+  telegramChatTitle: null,
   appInitialized: false,
 };

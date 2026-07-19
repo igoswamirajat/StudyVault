@@ -29,7 +29,7 @@ import { toast } from "sonner";
 import { QuizModal } from "@/components/quiz/QuizModal";
 import { driveOpenUrl } from "@/services/driveService";
 import { downloadResourceToLocal, isFsSupported, pickDirectory } from "@/services/fileSystemService";
-import { generateFlashcardsAI } from "@/lib/ai.functions";
+import { aiGenerateFlashcards } from "@/services/aiService";
 import { addFlashcards } from "@/services/flashcardService";
 import { getOrCreateSummary } from "@/services/notesService";
 import { exportResourceSummaryPdf } from "@/services/exportService";
@@ -110,14 +110,12 @@ function StudyRoom() {
     const tid = toast.loading("Generating flashcards from your summary…");
     try {
       const summary = await getOrCreateSummary(resource);
-      const result = await generateFlashcardsAI({
-        data: {
-          title: resource.name,
-          contentMarkdown: summary.contentMarkdown || resource.name,
-          resourceType: resource.type,
-          count: 8,
-        },
-      });
+      const result = await aiGenerateFlashcards(
+        resource.name,
+        summary.contentMarkdown || resource.name,
+        resource.type,
+        8,
+      );
       const added = await addFlashcards(resource.id, result.cards, "ai");
       toast.success(`Added ${added.length} flashcards`, { id: tid });
     } catch (err) {

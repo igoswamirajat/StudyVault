@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { getDb, type Resource } from "@/db/schema";
-import { readLocalResource } from "@/services/fileSystemService";
+import { readLocalResource, resourceUrl } from "@/services/fileSystemService";
 import { driveOpenUrl } from "@/services/driveService";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, Bookmark, Download } from "lucide-react";
+import { ExternalLink, Bookmark, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface Props {
@@ -16,7 +16,7 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
   const [loading, setLoading] = useState(true);
   const ref = useRef<HTMLVideoElement>(null);
 
-  // Try to load a local file (if downloaded). Otherwise fall back to Drive iframe preview.
+  // Try to load a local file (if downloaded). For Telegram resources, fetch via server.
   useEffect(() => {
     let active = true;
     let objectUrl: string | null = null;
@@ -30,6 +30,12 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
             objectUrl = URL.createObjectURL(file);
             setLocalUrl(objectUrl);
           }
+        } else if (resource.telegramFileId) {
+          const url = await resourceUrl(resource.id);
+          if (active) {
+            objectUrl = url;
+            setLocalUrl(url);
+          }
         }
       } finally {
         if (active) setLoading(false);
@@ -39,7 +45,7 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [resource.id, resource.isDownloaded]);
+  }, [resource.id, resource.isDownloaded, resource.telegramFileId]);
 
   // Resume position (local video only)
   useEffect(() => {
@@ -81,7 +87,7 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
     };
   }, [resource.id, resource.durationSeconds, localUrl]);
 
-  // Hotkeys (local video only)
+  // Hotkeys (local video only — iframe can't be controlled)
   useEffect(() => {
     if (!localUrl) return;
     const handler = async (e: KeyboardEvent) => {
@@ -134,6 +140,10 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
           poster={resource.thumbnailUrl ?? undefined}
           controls
           autoPlay
+          onClick={(e) => {
+            const v = e.currentTarget;
+            if (v.paused) v.play(); else v.pause();
+          }}
           className="size-full flex-1 object-contain"
         />
         <div className="flex items-center justify-between border-t border-border bg-surface-1 px-3 py-2 text-xs text-muted-foreground">
@@ -160,8 +170,17 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
     );
   }
 
-  // Streaming fallback: Drive's iframe preview player.
-  // Direct <video src> with the Drive download URL is blocked by CORS/auth redirects.
+  // No Drive ID and no local/telegram URL — nothing to play
+  if (!resource.driveId) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 bg-black text-white">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Downloading from Telegram…</p>
+      </div>
+    );
+  }
+
+  // Drive iframe embed — Google's own player handles playback
   return (
     <div className="flex h-full flex-col bg-black">
       <iframe
@@ -169,19 +188,20 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
         src={`https://drive.google.com/file/d/${resource.driveId}/preview`}
         allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
         allowFullScreen
+        referrerPolicy="no-referrer"
         className="size-full flex-1 border-0"
       />
-      <div className="flex items-center justify-between gap-3 border-t border-border bg-surface-1 px-3 py-2 text-xs text-muted-foreground">
-        <span>Streaming from Drive. Download for hotkeys, resume, bookmarks &amp; speed control.</span>
-        <div className="flex gap-2">
-          <Button asChild size="sm" variant="ghost">
-            <a href={driveOpenUrl(resource.driveId)} target="_blank" rel="noreferrer">
-              <ExternalLink className="mr-1 size-3.5" /> Open
-            </a>
-          </Button>
+      <div className="flex items-center justify-between border-t border-border bg-surface-1 px-3 py-1.5 text-xs text-muted-foreground">
+        <span>Use Drive's built-in controls · Download for keyboard shortcuts</span>
+        <div className="flex items-center gap-2">
           <Button asChild size="sm" variant="ghost">
             <a href={`https://drive.google.com/uc?export=download&id=${resource.driveId}`} target="_blank" rel="noreferrer">
               <Download className="mr-1 size-3.5" /> Download
+            </a>
+          </Button>
+          <Button asChild size="sm" variant="ghost">
+            <a href={driveOpenUrl(resource.driveId)} target="_blank" rel="noreferrer">
+              <ExternalLink className="mr-1 size-3.5" /> Open in Drive
             </a>
           </Button>
         </div>

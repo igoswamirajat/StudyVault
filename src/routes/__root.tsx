@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppShell } from "../components/app-shell/AppShell";
 import { Toaster } from "../components/ui/sonner";
+import { useAutoBackup } from "../hooks/useAutoBackup";
 
 function NotFoundComponent() {
   return (
@@ -117,6 +118,7 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  useAutoBackup();
 
   return (
     <QueryClientProvider client={queryClient}>

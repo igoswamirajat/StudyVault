@@ -11,6 +11,7 @@ import {
   AlertCircle,
   ArrowRight,
   HardDrive,
+  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,8 @@ import {
 } from "@/services/driveService";
 import { importLocalFolder, isFsSupported } from "@/services/fileSystemService";
 import { setSetting } from "@/services/storageService";
+import { checkTelegramHealth, scanTelegramChat, ingestTelegramFiles, sendTelegramOtp, verifyTelegramOtp } from "@/services/telegramService";
+import { looksLikeChatId } from "@/services/telegramParse";
 import { useSettings } from "@/hooks/useSettings";
 import { ClientOnly } from "@/components/common/ClientOnly";
 import { toast } from "sonner";
@@ -63,6 +66,15 @@ function Onboarding() {
     other: 0,
   });
   const [goal, setGoal] = useState(60);
+  const [tgApiId, setTgApiId] = useState("");
+  const [tgApiHash, setTgApiHash] = useState("");
+  const [tgPhone, setTgPhone] = useState("");
+  const [tgOtp, setTgOtp] = useState("");
+  const [tgPhoneCodeHash, setTgPhoneCodeHash] = useState("");
+  const [tgPendingSession, setTgPendingSession] = useState("");
+  const [tgChatId, setTgChatId] = useState("");
+  const [showTelegram, setShowTelegram] = useState(false);
+  const [tgStep, setTgStepLocal] = useState<"credentials" | "otp" | "chat">("credentials");
   const savedDriveId = (settings.driveId as string | null) || null;
   const savedApiKey = (settings.driveApiKey as string | null) || null;
   const initialized = Boolean(settings.appInitialized) || Boolean(savedDriveId);
@@ -162,7 +174,6 @@ function Onboarding() {
       await setSetting("localRootName", result.rootName);
       await setSetting("appInitialized", true);
       const counts = { video: 0, pdf: 0, notes: 0, other: 0 };
-      // Re-derive counts from db (simpler than threading file list back).
       const db = (await import("@/db/schema")).getDb();
       const all = await db.resources.toArray();
       for (const r of all) {
@@ -181,6 +192,71 @@ function Onboarding() {
         return;
       }
       setError(e instanceof Error ? e.message : "Local import failed.");
+      setStep("drive");
+    }
+  }
+
+  async function handleTgSendCode() {
+    setError(null);
+    const apiId = Number(tgApiId);
+    if (!apiId || !tgApiHash.trim() || !tgPhone.trim()) {
+      setError("Fill in API ID, API Hash, and phone number");
+      return;
+    }
+    try {
+      const res = await sendTelegramOtp(apiId, tgApiHash.trim(), tgPhone.trim());
+      if (!res.ok) { setError(res.error ?? "Failed to send OTP"); return; }
+      setTgPhoneCodeHash(res.phoneCodeHash!);
+      setTgPendingSession(res.pendingSession!);
+      await setSetting("telegramApiId", apiId);
+      await setSetting("telegramApiHash", tgApiHash.trim());
+      setTgStepLocal("otp");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    }
+  }
+
+  async function handleTgVerify() {
+    setError(null);
+    const apiId = Number(tgApiId);
+    if (!tgOtp.trim()) { setError("Enter the OTP"); return; }
+    try {
+      const res = await verifyTelegramOtp(apiId, tgApiHash.trim(), tgPhone.trim(), tgOtp.trim(), tgPhoneCodeHash, tgPendingSession);
+      if (!res.ok) { setError(res.error ?? "Verification failed"); return; }
+      await setSetting("telegramSession", res.session!);
+      setTgStepLocal("chat");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Verification failed");
+    }
+  }
+
+  async function handleTelegramScan() {
+    setError(null);
+    if (!looksLikeChatId(tgChatId)) {
+      setError("Invalid chat ID. Use -100..., @username, or t.me/ link.");
+      return;
+    }
+    setStep("scanning");
+    try {
+      await setSetting("telegramChatId", tgChatId.trim());
+      const files = await scanTelegramChat("", tgChatId.trim());
+      const result = await ingestTelegramFiles(files);
+      await setSetting("appInitialized", true);
+      const counts = { video: 0, pdf: 0, notes: 0, other: 0 };
+      const db = (await import("@/db/schema")).getDb();
+      const all = await db.resources.toArray();
+      for (const r of all) {
+        if (r.type === "video") counts.video++;
+        else if (r.type === "pdf") counts.pdf++;
+        else if (r.type === "markdown") counts.notes++;
+        else counts.other++;
+      }
+      setFileCount(counts);
+      toast.success(`Imported ${result.imported} files from Telegram`);
+      setStep("review");
+    } catch (e) {
+      console.error(e);
+      setError(e instanceof Error ? e.message : "Telegram scan failed.");
       setStep("drive");
     }
   }
@@ -322,6 +398,92 @@ function Onboarding() {
                   {fsReason === "unsupported" &&
                     "Local folders require a Chromium-based browser (Chrome, Edge, Brave). Use the Drive link above instead."}
                 </p>
+                <div className="flex items-center gap-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  <span className="h-px flex-1 bg-border" /> or{" "}
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowTelegram(!showTelegram)}
+                  className="w-full"
+                >
+                  <Send className="mr-2 size-4" />
+                  Connect Telegram chat
+                </Button>
+                {showTelegram && (
+                  <div className="space-y-2 rounded border border-border bg-surface-2 p-3">
+                    {tgStep === "credentials" && (
+                      <>
+                        <p className="text-[11px] text-muted-foreground">
+                          Get API ID &amp; Hash from my.telegram.org → "API development tools"
+                        </p>
+                        <Input
+                          placeholder="API ID (number)"
+                          value={tgApiId}
+                          onChange={(e) => setTgApiId(e.target.value)}
+                          className="h-9 font-mono text-xs"
+                        />
+                        <Input
+                          type="password"
+                          placeholder="API Hash"
+                          value={tgApiHash}
+                          onChange={(e) => setTgApiHash(e.target.value)}
+                          className="h-9 font-mono text-xs"
+                        />
+                        <Input
+                          placeholder="Phone (+91...)"
+                          value={tgPhone}
+                          onChange={(e) => setTgPhone(e.target.value)}
+                          className="h-9 text-xs"
+                        />
+                        <Button
+                          onClick={handleTgSendCode}
+                          className="w-full"
+                          disabled={!tgApiId.trim() || !tgApiHash.trim() || !tgPhone.trim()}
+                        >
+                          Send OTP
+                        </Button>
+                      </>
+                    )}
+                    {tgStep === "otp" && (
+                      <>
+                        <p className="text-[11px] text-muted-foreground">
+                          Enter the code from your Telegram app
+                        </p>
+                        <Input
+                          placeholder="12345"
+                          value={tgOtp}
+                          onChange={(e) => setTgOtp(e.target.value)}
+                          className="h-9 font-mono text-xs"
+                        />
+                        <Button onClick={handleTgVerify} className="w-full" disabled={!tgOtp.trim()}>
+                          Verify
+                        </Button>
+                      </>
+                    )}
+                    {tgStep === "chat" && (
+                      <>
+                        <p className="text-[11px] text-muted-foreground">
+                          Logged in. Now enter the chat/channel ID to scan.
+                        </p>
+                        <Input
+                          placeholder="Chat ID (-100XXXXXXXXXX, @channel)"
+                          value={tgChatId}
+                          onChange={(e) => setTgChatId(e.target.value)}
+                          className="h-9 text-xs"
+                        />
+                        <Button
+                          onClick={handleTelegramScan}
+                          className="w-full"
+                          disabled={!tgChatId.trim()}
+                        >
+                          Scan Telegram
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </Slide>
           )}

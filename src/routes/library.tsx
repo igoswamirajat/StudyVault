@@ -1,13 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Search, FileText, Film, FileCode, Image as ImageIcon, File, Grid3x3, List, Download, CheckCircle2, FolderSearch, Flame, Play, Clock } from "lucide-react";
+import { Search, FileText, Film, FileCode, Image as ImageIcon, File, Grid3x3, List, Download, CheckCircle2, FolderSearch, Flame, Play, Clock, Send, Cloud } from "lucide-react";
 import { getDb, type Resource, type ResourceType, type RevisionFlag } from "@/db/schema";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress as ProgressBar } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { naturalCompare } from "@/lib/naturalSort";
 import { formatDuration } from "@/lib/format-time";
 import { ClientOnly } from "@/components/common/ClientOnly";
 import { motion } from "framer-motion";
@@ -32,7 +33,7 @@ export const Route = createFileRoute("/library")({
   ),
 });
 
-type FilterKey = "all" | "video" | "pdf" | "markdown" | "in_progress" | "completed" | "downloaded" | "revision";
+type FilterKey = "all" | "video" | "pdf" | "markdown" | "in_progress" | "completed" | "downloaded" | "revision" | "drive" | "telegram";
 
 function LibraryPage() {
   const navigate = useNavigate();
@@ -73,15 +74,22 @@ function LibraryPage() {
     if (filter === "in_progress") r = r.filter((x) => progressMap.get(x.id)?.status === "in_progress");
     if (filter === "completed") r = r.filter((x) => progressMap.get(x.id)?.status === "completed");
     if (filter === "revision") r = r.filter((x) => x.revisionFlag && x.revisionFlag !== "done");
+    if (filter === "drive") r = r.filter((x) => (x.source ?? (x.driveId ? "drive" : "local")) === "drive");
+    if (filter === "telegram") r = r.filter((x) => x.source === "telegram");
     if (query) r = r.filter((x) => x.name.toLowerCase().includes(query.toLowerCase()));
     r.sort((a, b) => {
-      if (sort === "name") return a.name.localeCompare(b.name);
+      if (sort === "name") {
+        const aPath = a.folderPath ?? "";
+        const bPath = b.folderPath ?? "";
+        if (aPath !== bPath) return naturalCompare(aPath, bPath);
+        return naturalCompare(a.name, b.name);
+      }
       if (sort === "recent") return (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0);
-      // by day then order
       const da = a.dayAssignment ?? 9999;
       const dbb = b.dayAssignment ?? 9999;
       if (da !== dbb) return da - dbb;
-      return a.orderIndex - b.orderIndex;
+      if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
+      return naturalCompare(a.name, b.name);
     });
     return r;
   }, [resources, filter, query, sort, progressMap, availability]);
@@ -194,6 +202,8 @@ function LibraryPage() {
               ["in_progress", "In progress"],
               ["completed", "Completed"],
               ["downloaded", "Downloaded"],
+              ["drive", "Drive"],
+              ["telegram", "Telegram"],
             ] as const
           ).map(([key, label]) => (
             <button

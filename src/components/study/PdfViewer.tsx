@@ -29,14 +29,12 @@ export function PdfViewer({ resource }: { resource: Resource }) {
     setLoading(true);
     (async () => {
       try {
-        if (resource.isDownloaded) {
-          const url = await resourceUrl(resource.id);
-          if (!active) return;
-          if (url.startsWith("blob:")) {
-            objectUrl = url;
-            setLocalUrl(url);
-          }
+        const url = await resourceUrl(resource.id);
+        if (!active) return;
+        if (url.startsWith("blob:")) {
+          objectUrl = url;
         }
+        setLocalUrl(url);
       } catch (e) {
         if (active) setError(e instanceof Error ? e.message : "Failed");
       } finally {

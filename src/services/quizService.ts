@@ -1,5 +1,5 @@
 import { getDb, type Quiz, type Resource } from "@/db/schema";
-import { generateQuizAI } from "@/lib/ai.functions";
+import { aiGenerateQuiz } from "./aiService";
 import { getOrCreateSummary } from "./notesService";
 
 const FALLBACK = [
@@ -21,14 +21,12 @@ export async function generateQuizForResource(resource: Resource, opts?: { force
   let questions: Quiz["questions"];
   let source: "ai" | "manual" = "ai";
   try {
-    const result = await generateQuizAI({
-      data: {
-        title: resource.name,
-        contentMarkdown: summary.contentMarkdown || resource.name,
-        resourceType: resource.type,
-        count: 5,
-      },
-    });
+    const result = await aiGenerateQuiz(
+      resource.name,
+      summary.contentMarkdown || resource.name,
+      resource.type,
+      5
+    );
     questions = result.questions;
   } catch (err) {
     console.warn("AI quiz failed, using fallback", err);

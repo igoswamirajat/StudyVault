@@ -4,7 +4,7 @@ import { getDb, type Note, type Resource } from "@/db/schema";
 import type { Editor } from "@tiptap/react";
 import { TipTapEditor } from "./TipTapEditor";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Clock, Sparkles, FileText, Link2, BookmarkPlus } from "lucide-react";
+import { Plus, Trash2, Clock, Sparkles, FileText, Link2, BookmarkPlus, Brain, Loader2 } from "lucide-react";
 import {
   createNote,
   updateNote,
@@ -13,10 +13,12 @@ import {
   appendHighlightToSummary,
   findBacklinks,
 } from "@/services/notesService";
+import { aiGenerateSummary, aiGenerateAutoNote, isAiConfigured } from "@/services/aiService";
 import { formatDistanceToNow } from "date-fns";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { onHighlight, onViewerState } from "@/lib/viewer-bus";
 import { Link as RouterLink } from "@tanstack/react-router";
+import { toast } from "sonner";
 
 interface Props {
   resource: Resource | null;
@@ -169,6 +171,60 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
     if (name) insertText(`[[${name}]] `);
   }
 
+  const [aiLoading, setAiLoading] = useState(false);
+
+  async function handleAiSummarize() {
+    if (!summary || !resource) return;
+    setAiLoading(true);
+    try {
+      const hasAi = await isAiConfigured();
+      if (!hasAi) {
+        toast.error("Configure your AI provider in Settings → AI first");
+        return;
+      }
+      const content = summary.contentMarkdown || resource.name;
+      const result = await aiGenerateSummary(resource.name, content);
+      const ed = editorRef.current;
+      if (ed) {
+        ed.chain().focus().insertContent(`\n\n---\n\n**AI Summary:**\n\n${result.summary}`).run();
+      }
+      toast.success("AI summary added to notes");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "AI generation failed");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  async function handleAiAutoNote() {
+    if (!resource) return;
+    setAiLoading(true);
+    try {
+      const hasAi = await isAiConfigured();
+      if (!hasAi) {
+        toast.error("Configure your AI provider in Settings → AI first");
+        return;
+      }
+      const content = summary?.contentMarkdown || resource.name;
+      const result = await aiGenerateAutoNote(resource.name, content, resource.type);
+      const n = await createNote({
+        resourceId: resourceId,
+        dayNumber: null,
+        isGlobal: false,
+        title: `AI Notes: ${resource.name}`,
+        linkedTimestamp: null,
+      });
+      await updateNote(n.id, { contentMarkdown: result.notes, content: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: result.notes }] }] }) });
+      setTab("notes");
+      setActiveId(n.id);
+      toast.success("AI notes generated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "AI generation failed");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="flex flex-1 flex-col">
@@ -211,6 +267,12 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                 )}
                 <Button size="sm" variant="outline" onClick={insertLink} className="h-7 text-[11px]">
                   <Link2 className="mr-1 size-3" /> [[link]]
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleAiSummarize} disabled={aiLoading} className="h-7 text-[11px]">
+                  {aiLoading ? <Loader2 className="mr-1 size-3 animate-spin" /> : <Brain className="mr-1 size-3" />} AI Summary
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleAiAutoNote} disabled={aiLoading} className="h-7 text-[11px]">
+                  {aiLoading ? <Loader2 className="mr-1 size-3 animate-spin" /> : <Brain className="mr-1 size-3" />} AI Notes
                 </Button>
                 <span className="ml-auto text-[10px] text-muted-foreground">{saved ? "Saved" : "Saving…"}</span>
               </div>

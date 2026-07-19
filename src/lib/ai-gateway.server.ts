@@ -7,3 +7,11 @@ export function createLovableAiGatewayProvider(apiKey: string) {
     headers: { "Lovable-API-Key": apiKey },
   });
 }
+
+export function createUserAiProvider(endpoint: string, apiKey: string) {
+  return createOpenAICompatible({
+    name: "user-ai",
+    baseURL: endpoint.replace(/\/$/, ""),
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+}

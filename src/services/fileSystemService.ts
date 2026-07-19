@@ -1,5 +1,6 @@
 import { getDb, type Resource } from "@/db/schema";
 import { classifyByName, driveDownloadUrl } from "./driveService";
+import { downloadTelegramFile } from "./telegramService";
 import { nanoid } from "nanoid";
 
 const HANDLE_KEY = "offlineDirectoryHandle";
@@ -51,18 +52,25 @@ export async function downloadResourceToLocal(resourceId: string, onProgress?: (
   const fileName = `day${r.dayAssignment ?? 0}_${r.orderIndex}_${r.name}`.replace(/[\\/:*?"<>|]/g, "_");
   const fileHandle = await dir.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
-  const response = await fetch(driveDownloadUrl(r.driveId));
-  if (!response.ok || !response.body) throw new Error(`Download failed: ${response.status}`);
-  const total = Number(response.headers.get("content-length") ?? 0);
-  const reader = response.body.getReader();
-  let received = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      await writable.write(value);
-      received += value.length;
-      if (total > 0 && onProgress) onProgress(received / total);
+
+  if (r.telegramFileId) {
+    const buffer = await downloadTelegramFile(resourceId);
+    await writable.write(buffer);
+    if (onProgress) onProgress(1);
+  } else {
+    const response = await fetch(driveDownloadUrl(r.driveId));
+    if (!response.ok || !response.body) throw new Error(`Download failed: ${response.status}`);
+    const total = Number(response.headers.get("content-length") ?? 0);
+    const reader = response.body.getReader();
+    let received = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        await writable.write(value);
+        received += value.length;
+        if (total > 0 && onProgress) onProgress(received / total);
+      }
     }
   }
   await writable.close();
@@ -90,7 +98,7 @@ export async function resourceUrl(resourceId: string): Promise<string> {
   const r = await db.resources.get(resourceId);
   if (!r) throw new Error("Resource not found");
   // Locally-imported files (no driveId) live behind a stored FileSystemFileHandle.
-  if (!r.driveId) {
+  if (!r.driveId && !r.telegramFileId) {
     const file = await readLocalImportedFile(resourceId);
     if (file) return URL.createObjectURL(file);
     throw new Error("Local file is no longer accessible. Re-import the folder.");
@@ -98,6 +106,11 @@ export async function resourceUrl(resourceId: string): Promise<string> {
   if (r.isDownloaded) {
     const file = await readLocalResource(resourceId);
     if (file) return URL.createObjectURL(file);
+  }
+  if (r.telegramFileId) {
+    const buffer = await downloadTelegramFile(resourceId);
+    const blob = new Blob([buffer], { type: r.mimeType });
+    return URL.createObjectURL(blob);
   }
   return driveDownloadUrl(r.driveId);
 }

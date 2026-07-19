@@ -5,9 +5,23 @@ import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import Typography from "@tiptap/extension-typography";
+import { Table } from "@tiptap/extension-table";
+import { TableRow } from "@tiptap/extension-table-row";
+import { TableCell } from "@tiptap/extension-table-cell";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TaskList } from "@tiptap/extension-task-list";
+import { TaskItem } from "@tiptap/extension-task-item";
+import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
+import { common, createLowlight } from "lowlight";
 import { Markdown } from "tiptap-markdown";
-import { Bold, Italic, Strikethrough, List, ListOrdered, Quote, Code, Heading1, Heading2, Link as LinkIcon } from "lucide-react";
+import {
+  Bold, Italic, Strikethrough, List, ListOrdered, Quote, Code,
+  Heading1, Heading2, Link as LinkIcon, Table as TableIcon,
+  CheckSquare, Braces,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const lowlight = createLowlight(common);
 
 interface Props {
   value: string; // JSON string
@@ -32,10 +46,17 @@ export function TipTapEditor({
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ codeBlock: false }),
+      CodeBlockLowlight.configure({ lowlight }),
       Link.configure({ openOnClick: false }),
       Image,
       Typography,
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableCell,
+      TableHeader,
+      TaskList,
+      TaskItem.configure({ nested: true }),
       Placeholder.configure({ placeholder: placeholder ?? "Start typing your note…" }),
       Markdown.configure({ html: false, linkify: true, transformPastedText: true, transformCopiedText: false }),
     ],
@@ -102,8 +123,21 @@ export function TipTapEditor({
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive("blockquote")} aria-label="Quote">
           <Quote className="size-3.5" />
         </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={editor.isActive("codeBlock")} aria-label="Code">
+        <ToolbarBtn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={editor.isActive("codeBlock")} aria-label="Code block">
+          <Braces className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().toggleCode().run()} active={editor.isActive("code")} aria-label="Inline code">
           <Code className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().toggleTaskList().run()} active={editor.isActive("taskList")} aria-label="Task list">
+          <CheckSquare className="size-3.5" />
+        </ToolbarBtn>
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+          active={editor.isActive("table")}
+          aria-label="Table"
+        >
+          <TableIcon className="size-3.5" />
         </ToolbarBtn>
         <ToolbarBtn
           onClick={() => {
