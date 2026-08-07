@@ -189,7 +189,7 @@ export interface YoutubePlaylist {
 }
 
 export type NotebookCellType = "markdown" | "code";
-export type NotebookKernel = "browser" | "jupyter" | "kaggle" | "colab";
+export type NotebookKernel = "browser" | "pyodide" | "html" | "jupyter" | "kaggle" | "colab";
 export type NotebookCellStatus = "idle" | "running" | "success" | "error";
 
 export interface Notebook {
@@ -197,6 +197,12 @@ export interface Notebook {
   title: string;
   resourceId: string | null;
   kernel: NotebookKernel;
+  /** Primary language hint for new code cells (javascript | python | html). */
+  language?: string;
+  /** Where this notebook's runtime was resolved (CDN index URL or local path). */
+  runtimePath?: string | null;
+  /** True once the runtime was verified/installed for this notebook. */
+  runtimeInstalled?: boolean;
   createdAt: number;
   updatedAt: number;
 }

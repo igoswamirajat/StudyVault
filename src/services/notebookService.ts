@@ -7,17 +7,24 @@ import {
   type NotebookKernel,
 } from "@/db/schema";
 import { saveAs } from "file-saver";
+import { kernelLabel } from "@/services/kernelService";
 
 export async function createNotebook(
   title = "Untitled notebook",
   resourceId: string | null = null,
+  kernel?: NotebookKernel,
+  language?: string,
 ) {
   const now = Date.now();
+  const kernelType: NotebookKernel = kernel ?? "browser";
   const notebook: Notebook = {
     id: nanoid(),
     title,
     resourceId,
-    kernel: "browser",
+    kernel: kernelType,
+    language: language ?? (kernelType === "pyodide" ? "python" : "javascript"),
+    runtimePath: null,
+    runtimeInstalled: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -30,8 +37,10 @@ export async function createNotebook(
   await addNotebookCell(
     notebook.id,
     "code",
-    '// JavaScript runs in a short-lived Web Worker.\nconsole.log("hello");',
-    "javascript",
+    kernelType === "pyodide"
+      ? 'print("hello")'
+      : '// JavaScript runs in a short-lived Web Worker.\nconsole.log("hello");',
+    notebook.language,
   );
   return notebook;
 }
@@ -40,10 +49,12 @@ export async function addNotebookCell(
   notebookId: string,
   type: NotebookCellType,
   source = "",
-  language = type === "code" ? "javascript" : "markdown",
+  language?: string,
 ) {
   const db = getDb();
   const cells = await db.notebook_cells.where("notebookId").equals(notebookId).toArray();
+  const notebook = await db.notebooks.get(notebookId);
+  const lang = language ?? (type === "code" ? (notebook?.language ?? "javascript") : "markdown");
   const now = Date.now();
   const cell: NotebookCell = {
     id: nanoid(),
@@ -51,7 +62,7 @@ export async function addNotebookCell(
     type,
     orderIndex: cells.length,
     source,
-    language,
+    language: lang,
     output: "",
     status: "idle",
     executionCount: null,
@@ -136,12 +147,7 @@ export async function runBrowserJavascript(cell: NotebookCell): Promise<string> 
 }
 
 export function notebookKernelLabel(kernel: NotebookKernel): string {
-  return {
-    browser: "Browser JavaScript",
-    jupyter: "Local Jupyter",
-    kaggle: "Kaggle notebook",
-    colab: "Google Colab",
-  }[kernel];
+  return kernelLabel(kernel);
 }
 
 export async function exportNotebookIpynb(notebookId: string): Promise<void> {

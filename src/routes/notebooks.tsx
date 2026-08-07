@@ -1,12 +1,31 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Code2, Download, Eye, FileCode2, Play, Plus, Trash2, Pencil } from "lucide-react";
+import {
+  Code2,
+  Download,
+  Eye,
+  FileCode2,
+  Play,
+  Plus,
+  Trash2,
+  Pencil,
+  DownloadCloud,
+  RefreshCw,
+} from "lucide-react";
 import { ClientOnly } from "@/components/common/ClientOnly";
 import { NewContentMenu } from "@/components/common/NewContentMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useResizableSize, ResizeHandle } from "@/hooks/useResizableSize";
+import {
+  kernelStatus,
+  ensureRuntime,
+  kernelLabel,
+  runPyodideCell,
+  isBundledKernel,
+  kernelDownloadHint,
+} from "@/services/kernelService";
 import { MarkdownRenderer } from "@/components/notes/MarkdownRenderer";
 import { getDb, type NotebookCell, type NotebookKernel } from "@/db/schema";
 import {
@@ -129,12 +148,19 @@ function NotebooksPage() {
               Kernel
               <select
                 value={selected.kernel}
-                onChange={(event) =>
-                  void updateNotebook(selected.id, { kernel: event.target.value as NotebookKernel })
-                }
+                onChange={(event) => {
+                  const kernel = event.target.value as NotebookKernel;
+                  void updateNotebook(selected.id, {
+                    kernel,
+                    language:
+                      kernel === "pyodide" ? "python" : kernel === "html" ? "html" : "javascript",
+                  });
+                }}
                 className="h-9 border border-input bg-background px-2 text-xs text-foreground"
               >
-                <option value="browser">Browser JavaScript</option>
+                <option value="browser">Browser JS</option>
+                <option value="pyodide">Python (Pyodide)</option>
+                <option value="html">HTML render</option>
                 <option value="jupyter">Local Jupyter</option>
                 <option value="kaggle">Kaggle notebook</option>
                 <option value="colab">Google Colab</option>
@@ -150,12 +176,7 @@ function NotebooksPage() {
             </Button>
           </header>
 
-          {selected.kernel !== "browser" && (
-            <div className="border border-primary/30 bg-primary/10 p-3 text-xs text-muted-foreground">
-              {notebookKernelLabel(selected.kernel)} profile is saved as a target. Connect/export
-              adapter will run in next kernel phase; Browser JavaScript is executable now.
-            </div>
-          )}
+          <KernelStatusBar kernel={selected.kernel} notebookId={selected.id} />
 
           <div className="space-y-4">
             {cells.map((cell, index) => (
@@ -163,6 +184,7 @@ function NotebooksPage() {
                 key={cell.id}
                 cell={cell}
                 index={index}
+                kernel={selected.kernel}
                 onDelete={() => void deleteNotebookCell(cell.id)}
               />
             ))}
@@ -182,13 +204,91 @@ function NotebooksPage() {
   );
 }
 
+function KernelStatusBar({ kernel, notebookId }: { kernel: NotebookKernel; notebookId: string }) {
+  const [info, setInfo] = useState<{ ready: boolean; reason?: string; location?: string } | null>(
+    null,
+  );
+  const [installing, setInstalling] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void kernelStatus(kernel).then((s) => {
+      if (active) setInfo({ ready: s.ready, reason: s.reason, location: s.runtime?.location });
+    });
+    return () => {
+      active = false;
+    };
+  }, [kernel]);
+
+  async function install() {
+    setInstalling(true);
+    try {
+      const runtime = await ensureRuntime(kernel);
+      await updateNotebook(notebookId, {
+        runtimePath: runtime.location ?? null,
+        runtimeInstalled: true,
+      });
+      setInfo({ ready: true, location: runtime.location });
+      toast.success(`${kernelLabel(kernel)} runtime ready`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Runtime setup failed");
+    } finally {
+      setInstalling(false);
+    }
+  }
+
+  if (isBundledKernel(kernel)) {
+    return (
+      <div className="border border-border bg-surface-1 p-2.5 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{kernelLabel(kernel)}</span> runs in your
+        browser — no setup needed.
+      </div>
+    );
+  }
+
+  const hint = kernelDownloadHint(kernel);
+  const ready = info?.ready;
+  return (
+    <div className="border border-border bg-surface-1 p-2.5 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <RefreshCw className="size-3.5" />
+          <span>
+            <span className="font-medium text-foreground">{kernelLabel(kernel)}</span>
+            {hint ? ` · ${hint}` : ""}
+          </span>
+          <span className={ready ? "text-success" : "text-destructive"}>
+            {ready ? "ready" : "not configured"}
+          </span>
+        </div>
+        {!ready && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7"
+            disabled={installing}
+            onClick={() => void install()}
+          >
+            <DownloadCloud className="mr-1 size-3.5" />
+            {installing ? "Loading…" : "Install runtime"}
+          </Button>
+        )}
+      </div>
+      {info?.reason && !ready && <p className="mt-1">{info.reason}</p>}
+      {info?.location && ready && <p className="mt-1 truncate font-mono">{info.location}</p>}
+    </div>
+  );
+}
+
 function NotebookCellEditor({
   cell,
   index,
+  kernel,
   onDelete,
 }: {
   cell: NotebookCell;
   index: number;
+  kernel: NotebookKernel;
   onDelete: () => void;
 }) {
   const [source, setSource] = useState(cell.source);
@@ -205,7 +305,10 @@ function NotebookCellEditor({
     setRunning(true);
     await updateNotebookCell(cell.id, { status: "running", source });
     try {
-      const output = await runBrowserJavascript({ ...cell, source });
+      const output =
+        kernel === "pyodide"
+          ? await runPyodideCell({ ...cell, source })
+          : await runBrowserJavascript({ ...cell, source });
       await updateNotebookCell(cell.id, {
         output,
         status: "success",
@@ -247,17 +350,28 @@ function NotebookCellEditor({
         </div>
       </div>
       {cell.type === "code" && (
-        <div className="border-b border-border px-3 py-2">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <select
             value={cell.language}
             onChange={(event) => void updateNotebookCell(cell.id, { language: event.target.value })}
             className="h-7 border border-input bg-background px-2 font-mono text-[11px]"
           >
-            <option value="javascript">JavaScript</option>
-            <option value="python">Python</option>
-            <option value="r">R</option>
-            <option value="sql">SQL</option>
+            {kernel === "pyodide" ? (
+              <>
+                <option value="python">Python</option>
+              </>
+            ) : (
+              <>
+                <option value="javascript">JavaScript</option>
+                <option value="python">Python</option>
+                <option value="r">R</option>
+                <option value="sql">SQL</option>
+              </>
+            )}
           </select>
+          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            {kernelLabel(kernel)}
+          </span>
         </div>
       )}
       {preview && cell.type === "markdown" ? (
