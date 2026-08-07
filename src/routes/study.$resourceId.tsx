@@ -53,6 +53,7 @@ import { createFolder, moveResources } from "@/services/fileOpsService";
 import { generateQuizForResource } from "@/services/quizService";
 import { getOrCreateSummary, updateNote } from "@/services/notesService";
 import { aiGenerateSummary } from "@/services/aiService";
+import { useResizableSize, ResizeHandle } from "@/hooks/useResizableSize";
 
 export const Route = createFileRoute("/study/$resourceId")({
   errorComponent: StudyRoomError,
@@ -115,6 +116,20 @@ function StudyRoom() {
   const { settings } = useSettings();
   const reducedMotion = useReducedMotion();
   const [notesOpen, setNotesOpen] = useState(true);
+  const queueSize = useResizableSize({
+    storageKey: "panel:study:queueWidth",
+    defaultValue: 260,
+    min: 200,
+    max: 480,
+    direction: "left",
+  });
+  const notesSize = useResizableSize({
+    storageKey: "panel:study:notesWidth",
+    defaultValue: 340,
+    min: 260,
+    max: 560,
+    direction: "right",
+  });
   const [quizOpen, setQuizOpen] = useState(false);
   const [genFc, setGenFc] = useState(false);
   const videoControllerRef = useRef<VideoController | null>(null);
@@ -386,7 +401,10 @@ function StudyRoom() {
   return (
     <div className="flex h-[calc(100vh-48px)] w-full overflow-hidden">
       {/* Left: day list */}
-      <aside className="hidden w-[260px] shrink-0 border-r border-border bg-surface-1/40 lg:flex lg:flex-col">
+      <aside
+        style={{ width: queueSize.size }}
+        className="hidden shrink-0 border-r border-border bg-surface-1/40 lg:flex lg:flex-col"
+      >
         <div className="border-b border-border p-3">
           <p className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">
             {playlist?.label ??
@@ -416,6 +434,8 @@ function StudyRoom() {
           ))}
         </div>
       </aside>
+
+      <ResizeHandle side="left" onMouseDown={queueSize.startDrag} />
 
       {/* Center: viewer + header + footer */}
       <main className="flex min-w-0 flex-1 flex-col">
@@ -559,23 +579,29 @@ function StudyRoom() {
 
       {/* Right: notes panel */}
       {notesOpen && (
-        <aside className="hidden w-[340px] shrink-0 border-l border-border bg-surface-1/40 xl:flex xl:flex-col">
-          <NotesPanel
-            resource={resource}
-            resourceId={resource.id}
-            dayNumber={resource.dayAssignment}
-            getVideoTime={
-              resource.type === "video"
-                ? () => videoControllerRef.current?.getCurrentTime() ?? null
-                : undefined
-            }
-            onSeekVideo={
-              resource.type === "video"
-                ? (seconds) => videoControllerRef.current?.seekTo(seconds)
-                : undefined
-            }
-          />
-        </aside>
+        <>
+          <ResizeHandle side="right" onMouseDown={notesSize.startDrag} />
+          <aside
+            style={{ width: notesSize.size }}
+            className="hidden shrink-0 border-l border-border bg-surface-1/40 xl:flex xl:flex-col"
+          >
+            <NotesPanel
+              resource={resource}
+              resourceId={resource.id}
+              dayNumber={resource.dayAssignment}
+              getVideoTime={
+                resource.type === "video"
+                  ? () => videoControllerRef.current?.getCurrentTime() ?? null
+                  : undefined
+              }
+              onSeekVideo={
+                resource.type === "video"
+                  ? (seconds) => videoControllerRef.current?.seekTo(seconds)
+                  : undefined
+              }
+            />
+          </aside>
+        </>
       )}
 
       {quizOpen && <QuizModal resourceId={resource.id} onClose={() => setQuizOpen(false)} />}

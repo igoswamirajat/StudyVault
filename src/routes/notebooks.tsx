@@ -6,6 +6,7 @@ import { ClientOnly } from "@/components/common/ClientOnly";
 import { NewContentMenu } from "@/components/common/NewContentMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useResizableSize, ResizeHandle } from "@/hooks/useResizableSize";
 import { MarkdownRenderer } from "@/components/notes/MarkdownRenderer";
 import { getDb, type NotebookCell, type NotebookKernel } from "@/db/schema";
 import {
@@ -35,6 +36,13 @@ function NotebooksPage() {
   );
   const notebooks = useMemo(() => notebookRows ?? [], [notebookRows]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const sidebar = useResizableSize({
+    storageKey: "panel:notebooks:sidebarWidth",
+    defaultValue: 260,
+    min: 200,
+    max: 420,
+    direction: "left",
+  });
   const selected = notebooks.find((notebook) => notebook.id === selectedId) ?? notebooks[0];
   const cells =
     useLiveQuery(
@@ -72,8 +80,11 @@ function NotebooksPage() {
   }
 
   return (
-    <div className="grid h-[calc(100vh-48px)] grid-cols-1 lg:grid-cols-[260px_1fr]">
-      <aside className="flex min-h-0 flex-col border-b border-border bg-surface-1/40 lg:border-b-0 lg:border-r">
+    <div className="flex h-[calc(100vh-48px)]">
+      <aside
+        style={{ width: sidebar.size }}
+        className="flex min-h-0 shrink-0 flex-col border-r border-border bg-surface-1/40"
+      >
         <div className="flex items-center justify-between border-b border-border p-3">
           <p className="font-mono text-[11px] uppercase tracking-[0.25em] text-muted-foreground">
             Notebooks
@@ -96,6 +107,8 @@ function NotebooksPage() {
           ))}
         </div>
       </aside>
+
+      <ResizeHandle side="left" onMouseDown={sidebar.startDrag} />
 
       <main className="min-h-0 overflow-y-auto">
         <div className="mx-auto max-w-4xl space-y-5 p-4 sm:p-8">

@@ -9,6 +9,7 @@ import { Plus, Search, Trash2, FileText, Download } from "lucide-react";
 import { NewContentMenu } from "@/components/common/NewContentMenu";
 import { createNote, updateNote, deleteNote } from "@/services/notesService";
 import { TipTapEditor } from "@/components/notes/TipTapEditor";
+import { useResizableSize, ResizeHandle } from "@/hooks/useResizableSize";
 import { formatDistanceToNow } from "date-fns";
 import { saveAs } from "file-saver";
 
@@ -25,6 +26,13 @@ function NotesPage() {
   const [q, setQ] = useState("");
   const [savedAt, setSavedAt] = useState<number>(Date.now());
   const [previewMode, setPreviewMode] = useState(false);
+  const sidebar = useResizableSize({
+    storageKey: "panel:notes:sidebarWidth",
+    defaultValue: 320,
+    min: 220,
+    max: 520,
+    direction: "left",
+  });
   const debRef = useRef<number | null>(null);
   const pendingSaveRef = useRef<{ id: string; json: string; markdown: string } | null>(null);
 
@@ -82,8 +90,11 @@ function NotesPage() {
   }
 
   return (
-    <div className="grid h-[calc(100vh-48px)] grid-cols-[320px_1fr]">
-      <aside className="flex flex-col border-r border-border bg-surface-1/40">
+    <div className="flex h-[calc(100vh-48px)]">
+      <aside
+        style={{ width: sidebar.size }}
+        className="flex shrink-0 flex-col border-r border-border bg-surface-1/40"
+      >
         <div className="border-b border-border p-3">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-semibold">Notes</h2>
@@ -125,6 +136,8 @@ function NotesPage() {
           ))}
         </div>
       </aside>
+
+      <ResizeHandle side="left" onMouseDown={sidebar.startDrag} />
 
       <main className="flex flex-col overflow-hidden">
         {active ? (
