@@ -62,12 +62,6 @@ export async function searchNotes(query: string): Promise<Note[]> {
 /** Find (or create) the single canonical Summary Note for a resource. */
 export async function getOrCreateSummary(resource: Resource): Promise<Note> {
   const db = getDb();
-  const existing = await db.notes
-    .where("resourceId")
-    .equals(resource.id)
-    .filter((n) => n.isSummary === true)
-    .first();
-  if (existing) return existing;
 
   const headerLine =
     (resource.dayAssignment != null ? `Day ${resource.dayAssignment} · ` : "") +
@@ -96,14 +90,35 @@ export async function getOrCreateSummary(resource: Resource): Promise<Note> {
     ],
   };
 
-  return createNote({
-    resourceId: resource.id,
-    dayNumber: resource.dayAssignment,
-    isGlobal: false,
-    isSummary: true,
-    title: `Summary — ${resource.name}`,
-    content: JSON.stringify(doc),
-    contentMarkdown: `# ${resource.name}\n\n${headerLine}\n\n## Key takeaways\n\n- \n\n## Notes & highlights\n\n`,
+  // Read-then-create must be atomic, otherwise two concurrent callers (e.g. the
+  // NotesPanel mount effect racing an incoming highlight) each see "no summary"
+  // and both insert one — splitting the user's notes across duplicate records.
+  return db.transaction("rw", db.notes, async () => {
+    const existing = await db.notes
+      .where("resourceId")
+      .equals(resource.id)
+      .filter((n) => n.isSummary === true)
+      .first();
+    if (existing) return existing;
+
+    const now = Date.now();
+    const note: Note = {
+      id: nanoid(),
+      resourceId: resource.id,
+      dayNumber: resource.dayAssignment,
+      isGlobal: false,
+      isSummary: true,
+      title: `Summary — ${resource.name}`,
+      content: JSON.stringify(doc),
+      contentMarkdown: `# ${resource.name}\n\n${headerLine}\n\n## Key takeaways\n\n- \n\n## Notes & highlights\n\n`,
+      tags: [],
+      linkedTimestamp: null,
+      createdAt: now,
+      updatedAt: now,
+      ownerId: "local",
+    };
+    await db.notes.put(note);
+    return note;
   });
 }
 
@@ -114,12 +129,6 @@ export async function appendHighlightToSummary(
   meta?: { page?: number; time?: number | null },
 ): Promise<void> {
   const db = getDb();
-  const summary = await db.notes
-    .where("resourceId")
-    .equals(resourceId)
-    .filter((n) => n.isSummary === true)
-    .first();
-  if (!summary) return;
   const ref =
     meta?.page != null
       ? ` _(p. ${meta.page})_`
@@ -127,29 +136,40 @@ export async function appendHighlightToSummary(
         ? ` _(${Math.floor(meta.time / 60)}:${String(Math.floor(meta.time % 60)).padStart(2, "0")})_`
         : "";
   const cleaned = text.trim().replace(/\s+/g, " ");
-  const newMd = (summary.contentMarkdown ?? "") + `\n\n> ${cleaned}${ref}\n`;
 
-  let doc: { type: string; content: unknown[] };
-  try {
-    doc = JSON.parse(summary.content);
-    if (!Array.isArray(doc.content)) doc.content = [];
-  } catch {
-    doc = { type: "doc", content: [] };
-  }
-  doc.content.push({
-    type: "blockquote",
-    content: [
-      {
-        type: "paragraph",
-        content: [{ type: "text", text: cleaned + ref.replace(/_/g, "") }],
-      },
-    ],
-  });
-  await db.notes.put({
-    ...summary,
-    content: JSON.stringify(doc),
-    contentMarkdown: newMd,
-    updatedAt: Date.now(),
+  // Read-modify-write in one transaction so two highlights arriving back-to-back
+  // can't each read the same base and clobber each other (lost-update).
+  await db.transaction("rw", db.notes, async () => {
+    const summary = await db.notes
+      .where("resourceId")
+      .equals(resourceId)
+      .filter((n) => n.isSummary === true)
+      .first();
+    if (!summary) return;
+    const newMd = (summary.contentMarkdown ?? "") + `\n\n> ${cleaned}${ref}\n`;
+
+    let doc: { type: string; content: unknown[] };
+    try {
+      doc = JSON.parse(summary.content);
+      if (!Array.isArray(doc.content)) doc.content = [];
+    } catch {
+      doc = { type: "doc", content: [] };
+    }
+    doc.content.push({
+      type: "blockquote",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: cleaned + ref.replace(/_/g, "") }],
+        },
+      ],
+    });
+    await db.notes.put({
+      ...summary,
+      content: JSON.stringify(doc),
+      contentMarkdown: newMd,
+      updatedAt: Date.now(),
+    });
   });
 }
 

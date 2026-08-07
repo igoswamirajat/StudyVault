@@ -3,34 +3,45 @@ import { getDb, type Progress, type StudySession } from "@/db/schema";
 
 export async function getOrCreateProgress(resourceId: string): Promise<Progress> {
   const db = getDb();
-  const existing = await db.progress.get(resourceId);
-  if (existing) return existing;
-  const res = await db.resources.get(resourceId);
-  const fresh: Progress = {
-    resourceId,
-    dayNumber: res?.dayAssignment ?? null,
-    status: "not_started",
-    completedAt: null,
-    timeSpentSeconds: 0,
-    videoProgressSeconds: 0,
-    quizScore: null,
-  };
-  await db.progress.put(fresh);
-  return fresh;
+  // Atomic get-or-insert: without the transaction two concurrent callers (e.g.
+  // the study-session timer's addTimeSpent racing a setStatus) can both miss the
+  // row and insert competing defaults.
+  return db.transaction("rw", db.progress, db.resources, async () => {
+    const existing = await db.progress.get(resourceId);
+    if (existing) return existing;
+    const res = await db.resources.get(resourceId);
+    const fresh: Progress = {
+      resourceId,
+      dayNumber: res?.dayAssignment ?? null,
+      status: "not_started",
+      completedAt: null,
+      timeSpentSeconds: 0,
+      videoProgressSeconds: 0,
+      quizScore: null,
+    };
+    await db.progress.put(fresh);
+    return fresh;
+  });
 }
 
 export async function setStatus(resourceId: string, status: Progress["status"]) {
-  const p = await getOrCreateProgress(resourceId);
-  p.status = status;
-  if (status === "completed") p.completedAt = Date.now();
-  await getDb().progress.put(p);
+  const db = getDb();
+  await db.transaction("rw", db.progress, db.resources, async () => {
+    const p = await getOrCreateProgress(resourceId);
+    p.status = status;
+    if (status === "completed") p.completedAt = Date.now();
+    await db.progress.put(p);
+  });
 }
 
 export async function addTimeSpent(resourceId: string, seconds: number) {
-  const p = await getOrCreateProgress(resourceId);
-  p.timeSpentSeconds += seconds;
-  if (p.status === "not_started") p.status = "in_progress";
-  await getDb().progress.put(p);
+  const db = getDb();
+  await db.transaction("rw", db.progress, db.resources, async () => {
+    const p = await getOrCreateProgress(resourceId);
+    p.timeSpentSeconds += seconds;
+    if (p.status === "not_started") p.status = "in_progress";
+    await db.progress.put(p);
+  });
 }
 
 export async function startSession(): Promise<number> {

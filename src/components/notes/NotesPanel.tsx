@@ -4,7 +4,17 @@ import { getDb, type Note, type Resource } from "@/db/schema";
 import type { Editor } from "@tiptap/react";
 import { TipTapEditor } from "./TipTapEditor";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Clock, Sparkles, FileText, Link2, BookmarkPlus, Brain, Loader2 } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Clock,
+  Sparkles,
+  FileText,
+  Link2,
+  BookmarkPlus,
+  Brain,
+  Loader2,
+} from "lucide-react";
 import {
   createNote,
   updateNote,
@@ -14,6 +24,7 @@ import {
   findBacklinks,
 } from "@/services/notesService";
 import { aiGenerateSummary, aiGenerateAutoNote, isAiConfigured } from "@/services/aiService";
+import { buildResourceContext, gatherResourceMedia } from "@/services/aiContext";
 import { formatDistanceToNow } from "date-fns";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { onHighlight, onViewerState } from "@/lib/viewer-bus";
@@ -72,10 +83,10 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
 
   // Live queries
   const summary = useLiveQuery(
-    () => (summaryId ? getDb().notes.get(summaryId) : Promise.resolve(undefined as Note | undefined)),
+    () =>
+      summaryId ? getDb().notes.get(summaryId) : Promise.resolve(undefined as Note | undefined),
     [summaryId],
   ) as Note | undefined;
-
 
   const resourceNotes = (useLiveQuery(
     () =>
@@ -98,10 +109,17 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
     [dayNumber],
   ) ?? []) as Note[];
 
-  const allNotes = (useLiveQuery(() => getDb().notes.orderBy("updatedAt").reverse().toArray(), []) ?? []) as Note[];
+  const allNotes = (useLiveQuery(
+    () => getDb().notes.orderBy("updatedAt").reverse().toArray(),
+    [],
+  ) ?? []) as Note[];
 
-  const list = tab === "notes" ? resourceNotes : tab === "day" ? dayNotes : tab === "all" ? allNotes : [];
-  const active = useMemo(() => list.find((n) => n.id === activeId) ?? list[0] ?? null, [list, activeId]);
+  const list =
+    tab === "notes" ? resourceNotes : tab === "day" ? dayNotes : tab === "all" ? allNotes : [];
+  const active = useMemo(
+    () => list.find((n) => n.id === activeId) ?? list[0] ?? null,
+    [list, activeId],
+  );
 
   // Backlinks for the current resource (search other notes for [[Resource Name]])
   const [backlinks, setBacklinks] = useState<Note[]>([]);
@@ -182,8 +200,9 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
         toast.error("Configure your AI provider in Settings → AI first");
         return;
       }
-      const content = summary.contentMarkdown || resource.name;
-      const result = await aiGenerateSummary(resource.name, content);
+      const context = await buildResourceContext(resource);
+      const media = await gatherResourceMedia(resource);
+      const result = await aiGenerateSummary(resource.name, context, media);
       const ed = editorRef.current;
       if (ed) {
         ed.chain().focus().insertContent(`\n\n---\n\n**AI Summary:**\n\n${result.summary}`).run();
@@ -205,8 +224,9 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
         toast.error("Configure your AI provider in Settings → AI first");
         return;
       }
-      const content = summary?.contentMarkdown || resource.name;
-      const result = await aiGenerateAutoNote(resource.name, content, resource.type);
+      const context = await buildResourceContext(resource);
+      const media = await gatherResourceMedia(resource);
+      const result = await aiGenerateAutoNote(resource.name, context, resource.type, media);
       const n = await createNote({
         resourceId: resourceId,
         dayNumber: null,
@@ -214,7 +234,13 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
         title: `AI Notes: ${resource.name}`,
         linkedTimestamp: null,
       });
-      await updateNote(n.id, { contentMarkdown: result.notes, content: JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: result.notes }] }] }) });
+      await updateNote(n.id, {
+        contentMarkdown: result.notes,
+        content: JSON.stringify({
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: result.notes }] }],
+        }),
+      });
       setTab("notes");
       setActiveId(n.id);
       toast.success("AI notes generated");
@@ -256,25 +282,64 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
             <div className="flex flex-col gap-3 p-3">
               <div className="flex flex-wrap items-center gap-1">
                 {getVideoTime && (
-                  <Button size="sm" variant="outline" onClick={insertTimestamp} className="h-7 text-[11px]">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={insertTimestamp}
+                    className="h-7 text-[11px]"
+                  >
                     <Clock className="mr-1 size-3" /> Timestamp
                   </Button>
                 )}
                 {page != null && (
-                  <Button size="sm" variant="outline" onClick={insertPage} className="h-7 text-[11px]">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={insertPage}
+                    className="h-7 text-[11px]"
+                  >
                     <FileText className="mr-1 size-3" /> Page {page}
                   </Button>
                 )}
-                <Button size="sm" variant="outline" onClick={insertLink} className="h-7 text-[11px]">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={insertLink}
+                  className="h-7 text-[11px]"
+                >
                   <Link2 className="mr-1 size-3" /> [[link]]
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleAiSummarize} disabled={aiLoading} className="h-7 text-[11px]">
-                  {aiLoading ? <Loader2 className="mr-1 size-3 animate-spin" /> : <Brain className="mr-1 size-3" />} AI Summary
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleAiSummarize}
+                  disabled={aiLoading}
+                  className="h-7 text-[11px]"
+                >
+                  {aiLoading ? (
+                    <Loader2 className="mr-1 size-3 animate-spin" />
+                  ) : (
+                    <Brain className="mr-1 size-3" />
+                  )}{" "}
+                  AI Summary
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleAiAutoNote} disabled={aiLoading} className="h-7 text-[11px]">
-                  {aiLoading ? <Loader2 className="mr-1 size-3 animate-spin" /> : <Brain className="mr-1 size-3" />} AI Notes
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleAiAutoNote}
+                  disabled={aiLoading}
+                  className="h-7 text-[11px]"
+                >
+                  {aiLoading ? (
+                    <Loader2 className="mr-1 size-3 animate-spin" />
+                  ) : (
+                    <Brain className="mr-1 size-3" />
+                  )}{" "}
+                  AI Notes
                 </Button>
-                <span className="ml-auto text-[10px] text-muted-foreground">{saved ? "Saved" : "Saving…"}</span>
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  {saved ? "Saved" : "Saving…"}
+                </span>
               </div>
 
               <TipTapEditor
@@ -293,8 +358,8 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                 </p>
                 {backlinks.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground">
-                    No backlinks yet. Use <span className="font-mono">[[{resource?.name}]]</span> in any other note to
-                    link here.
+                    No backlinks yet. Use <span className="font-mono">[[{resource?.name}]]</span> in
+                    any other note to link here.
                   </p>
                 ) : (
                   <ul className="flex flex-col gap-1">
@@ -319,8 +384,8 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
               </div>
 
               <p className="text-[10px] text-muted-foreground">
-                Updated {formatDistanceToNow(summary.updatedAt)} ago · Highlights from the viewer land here
-                automatically.
+                Updated {formatDistanceToNow(summary.updatedAt)} ago · Highlights from the viewer
+                land here automatically.
               </p>
             </div>
           ) : (
@@ -335,14 +400,18 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
           <TabsContent key={k} value={k} className="flex flex-1 flex-col overflow-hidden p-0">
             <div className="flex h-32 shrink-0 flex-col gap-0.5 overflow-y-auto border-b border-border p-2">
               {list.length === 0 && (
-                <p className="px-1 py-2 text-xs text-muted-foreground">No notes here yet. Click + to start typing.</p>
+                <p className="px-1 py-2 text-xs text-muted-foreground">
+                  No notes here yet. Click + to start typing.
+                </p>
               )}
               {list.map((n) => (
                 <button
                   key={n.id}
                   onClick={() => setActiveId(n.id)}
                   className={`flex items-center justify-between rounded px-2 py-1 text-left text-xs ${
-                    active?.id === n.id ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60"
+                    active?.id === n.id
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/60"
                   }`}
                 >
                   <span className="truncate">{n.title || "Untitled"}</span>
@@ -373,7 +442,9 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                     className="min-w-0 flex-1 truncate bg-transparent text-sm font-semibold focus:outline-none"
                     placeholder="Title"
                   />
-                  <span className="shrink-0 text-[10px] text-muted-foreground">{saved ? "Saved" : "Saving…"}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {saved ? "Saved" : "Saving…"}
+                  </span>
                   <Button size="icon" variant="ghost" onClick={handleDelete} aria-label="Delete">
                     <Trash2 className="size-3.5" />
                   </Button>

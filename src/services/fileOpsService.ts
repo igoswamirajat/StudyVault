@@ -119,10 +119,7 @@ export async function moveResources(ids: string[], targetFolderPath: string) {
 /* ------------------------------------------------------------ Copy --- */
 
 /** Duplicate resources. If targetFolderPath is undefined, copies stay in their current folder. */
-export async function copyResources(
-  ids: string[],
-  targetFolderPath?: string,
-): Promise<string[]> {
+export async function copyResources(ids: string[], targetFolderPath?: string): Promise<string[]> {
   if (ids.length === 0) return [];
   const db = getDb();
   const newIds: string[] = [];
@@ -133,12 +130,13 @@ export async function copyResources(
       const folderPath = targetFolderPath !== undefined ? targetFolderPath : (r.folderPath ?? "");
       // Find unique name within destination folder
       const siblings = (await db.resources.toArray()).filter(
-        (x) =>
-          (x.status ?? "active") === "active" &&
-          (x.folderPath ?? "") === folderPath,
+        (x) => (x.status ?? "active") === "active" && (x.folderPath ?? "") === folderPath,
       );
       const baseName = r.name;
-      let name = baseName === r.name && folderPath !== (r.folderPath ?? "") ? baseName : `${baseName} (copy)`;
+      let name =
+        baseName === r.name && folderPath !== (r.folderPath ?? "")
+          ? baseName
+          : `${baseName} (copy)`;
       let i = 2;
       while (siblings.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
         name = `${baseName} (copy ${i++})`;
@@ -184,4 +182,27 @@ export async function toggleTag(ids: string[], tag: string, add: boolean) {
 export async function listFoldersFlat(): Promise<FolderRow[]> {
   const folders = await getDb().folders.toArray();
   return folders.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * Creates a folder ("unit"/"week") under an optional parent path. Returns the
+ * new folder's path. Throws on empty name or collision so callers can surface
+ * the reason. Shared by the Organizer UI and the in-session AI assistant.
+ */
+export async function createFolder(name: string, parentPath = ""): Promise<string> {
+  const clean = name.trim();
+  if (!clean) throw new Error("Folder name can't be empty");
+  const path = parentPath ? `${parentPath}/${clean}` : clean;
+  const db = getDb();
+  const existing = await db.folders.get(path);
+  if (existing) throw new Error("A folder with that name already exists here");
+  await db.folders.put({
+    path,
+    name: clean,
+    parentPath,
+    createdAt: Date.now(),
+    source: "user",
+  });
+  await logOp("folder_create", { path });
+  return path;
 }

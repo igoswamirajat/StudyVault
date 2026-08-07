@@ -64,6 +64,7 @@ import {
   moveResources,
   renameResource,
   copyResources,
+  createFolder as createFolderSvc,
 } from "@/services/fileOpsService";
 import { useFileSelection, makeSelectHandler } from "@/hooks/useFileSelection";
 import { useFileClipboard } from "@/hooks/useFileClipboard";
@@ -211,7 +212,10 @@ function Organizer() {
   const [movePickerIds, setMovePickerIds] = useState<string[] | null>(null);
   const [copyPickerIds, setCopyPickerIds] = useState<string[] | null>(null);
   const [moveFolderPath, setMoveFolderPath] = useState<string | null>(null);
-  const [activeDrag, setActiveDrag] = useState<{ kind: "resource" | "folder"; label: string } | null>(null);
+  const [activeDrag, setActiveDrag] = useState<{
+    kind: "resource" | "folder";
+    label: string;
+  } | null>(null);
 
   const sel = useFileSelection();
   const clip = useFileClipboard();
@@ -297,7 +301,8 @@ function Organizer() {
     }
 
     // Resource(s) drop
-    const draggedIds = sel.selected.has(activeId) && sel.count > 1 ? Array.from(sel.selected) : [activeId];
+    const draggedIds =
+      sel.selected.has(activeId) && sel.count > 1 ? Array.from(sel.selected) : [activeId];
     const dest = targetPath === "__unassigned__" ? "" : targetPath;
     await moveResources(draggedIds, dest);
     toast.success(`Moved ${draggedIds.length} item${draggedIds.length > 1 ? "s" : ""}`);
@@ -307,21 +312,13 @@ function Organizer() {
   async function createFolder(parentPath: string) {
     const name = window.prompt("Folder name");
     if (!name || !name.trim()) return;
-    const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
-    const existing = await getDb().folders.get(path);
-    if (existing) {
-      toast.error("A folder with that name already exists here");
-      return;
+    try {
+      const path = await createFolderSvc(name, parentPath);
+      setExpanded((s) => new Set([...s, parentPath, path]));
+      setSelectedPath(path);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't create folder");
     }
-    await getDb().folders.put({
-      path,
-      name: name.trim(),
-      parentPath,
-      createdAt: Date.now(),
-      source: "user",
-    });
-    setExpanded((s) => new Set([...s, parentPath, path]));
-    setSelectedPath(path);
   }
 
   async function commitFolderRename(node: FolderNode, nextName: string) {
@@ -373,7 +370,10 @@ function Organizer() {
       await db.transaction("rw", db.folders, db.resources, async () => {
         const allResourcesArr = await db.resources.toArray();
         for (const r of allResourcesArr) {
-          if (r.folderPath === node.path || (r.folderPath && r.folderPath.startsWith(node.path + "/"))) {
+          if (
+            r.folderPath === node.path ||
+            (r.folderPath && r.folderPath.startsWith(node.path + "/"))
+          ) {
             await db.resources.update(r.id, { folderPath: "" });
           }
         }
@@ -400,7 +400,12 @@ function Organizer() {
             <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
               Drive Folders
             </h2>
-            <Button size="sm" variant="ghost" onClick={() => createFolder("")} title="Add folder at root">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => createFolder("")}
+              title="Add folder at root"
+            >
               <FolderPlus className="size-3.5" />
             </Button>
           </div>
@@ -503,9 +508,11 @@ function Organizer() {
           <div className="pointer-events-none border-2 border-foreground bg-background px-2 py-1 text-xs font-bold shadow-[3px_3px_0_var(--foreground)]">
             {activeDrag.kind === "folder" ? "📁 " : "📄 "}
             {activeDrag.label}
-            {sel.count > 1 && activeDrag.kind === "resource" && sel.selected.has(activeDrag.label) && (
-              <span className="ml-1 bg-foreground px-1 text-background">{sel.count}</span>
-            )}
+            {sel.count > 1 &&
+              activeDrag.kind === "resource" &&
+              sel.selected.has(activeDrag.label) && (
+                <span className="ml-1 bg-foreground px-1 text-background">{sel.count}</span>
+              )}
           </div>
         )}
       </DragOverlay>
@@ -528,7 +535,9 @@ function Organizer() {
         onConfirm={async (path) => {
           if (!copyPickerIds) return;
           const newIds = await copyResources(copyPickerIds, path);
-          toast.success(`Copied ${newIds.length} item${newIds.length > 1 ? "s" : ""} to ${path || "root"}`);
+          toast.success(
+            `Copied ${newIds.length} item${newIds.length > 1 ? "s" : ""} to ${path || "root"}`,
+          );
           setCopyPickerIds(null);
         }}
       />
@@ -591,7 +600,12 @@ function TreeNode({
   const isOpen = expanded.has(node.path);
   const navigate = useNavigate();
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `folder:${node.path}` });
-  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragRef,
+    isDragging,
+  } = useDraggable({
     id: `folder-drag:${node.path}`,
   });
   const count = collectResourcesRecursive(node).length;
@@ -624,8 +638,15 @@ function TreeNode({
             )}
             onDoubleClick={() => onRequestRename(node.path)}
           >
-            <button onClick={toggle} className="grid size-5 place-items-center text-muted-foreground">
-              {isOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+            <button
+              onClick={toggle}
+              className="grid size-5 place-items-center text-muted-foreground"
+            >
+              {isOpen ? (
+                <ChevronDown className="size-3.5" />
+              ) : (
+                <ChevronRight className="size-3.5" />
+              )}
             </button>
             <span
               {...attributes}
@@ -663,7 +684,9 @@ function TreeNode({
                 <span className="truncate">{node.name}</span>
               )}
             </div>
-            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{count}</span>
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+              {count}
+            </span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -729,7 +752,10 @@ function TreeNode({
             <ClipboardPaste className="mr-2 size-3.5" /> Paste here
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={() => onDelete(node)}>
+          <ContextMenuItem
+            className="text-destructive focus:text-destructive"
+            onSelect={() => onDelete(node)}
+          >
             <Trash2 className="mr-2 size-3.5" /> Delete folder
           </ContextMenuItem>
         </ContextMenuContent>
@@ -784,7 +810,9 @@ function UnassignedDrop({
             isOver && "ring-2 ring-foreground",
           )}
         >
-          <button onClick={onSelect} className="flex-1 text-left">Unassigned</button>
+          <button onClick={onSelect} className="flex-1 text-left">
+            Unassigned
+          </button>
           <span className="font-mono text-[10px] tabular-nums">{count}</span>
         </div>
       </ContextMenuTrigger>
@@ -858,7 +886,11 @@ function FolderDetail(props: FolderDetailProps) {
       <div>
         <Header title="Unassigned" subtitle="Drag any item onto a folder on the left." />
         <SortBar sortMode={sortMode} onChange={updateSort} />
-        <ResourceList resources={sortResources(orphans, sortMode)} scope="organizer:__unassigned__" {...props} />
+        <ResourceList
+          resources={sortResources(orphans, sortMode)}
+          scope="organizer:__unassigned__"
+          {...props}
+        />
       </div>
     );
   }
@@ -931,14 +963,30 @@ function FolderDetail(props: FolderDetailProps) {
   );
 }
 
-function Header({ title, subtitle, meta, actions }: { title: string; subtitle?: string; meta?: string; actions?: React.ReactNode }) {
+function Header({
+  title,
+  subtitle,
+  meta,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  meta?: string;
+  actions?: React.ReactNode;
+}) {
   return (
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        <p className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">Folder</p>
+        <p className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
+          Folder
+        </p>
         <h1 className="truncate text-2xl font-black uppercase tracking-tight">{title}</h1>
         {subtitle && <p className="truncate text-xs text-muted-foreground">{subtitle}</p>}
-        {meta && <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{meta}</p>}
+        {meta && (
+          <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+            {meta}
+          </p>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-2">{actions}</div>
     </div>
@@ -948,7 +996,9 @@ function Header({ title, subtitle, meta, actions }: { title: string; subtitle?: 
 function SortBar({ sortMode, onChange }: { sortMode: SortMode; onChange: (v: SortMode) => void }) {
   return (
     <div className="mb-3 flex items-center gap-2">
-      <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Sort</label>
+      <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
+        Sort
+      </label>
       <select
         value={sortMode}
         onChange={(e) => onChange(e.target.value as SortMode)}
@@ -1003,7 +1053,8 @@ function ResourceList({
         </ContextMenuTrigger>
         <ContextMenuContent className="w-48">
           <ContextMenuItem disabled={clipboardCount === 0} onSelect={() => onPasteHere()}>
-            <ClipboardPaste className="mr-2 size-3.5" /> Paste {clipboardCount > 0 ? `(${clipboardCount})` : ""}
+            <ClipboardPaste className="mr-2 size-3.5" /> Paste{" "}
+            {clipboardCount > 0 ? `(${clipboardCount})` : ""}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -1159,13 +1210,17 @@ function DraggableResource({
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => onCopyClip(idsForOp())}>
-          <CopyIcon className="mr-2 size-3.5" /> Copy <span className="ml-auto text-[10px] text-muted-foreground">⌘C</span>
+          <CopyIcon className="mr-2 size-3.5" /> Copy{" "}
+          <span className="ml-auto text-[10px] text-muted-foreground">⌘C</span>
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onCutClip(idsForOp())}>
-          <Scissors className="mr-2 size-3.5" /> Cut <span className="ml-auto text-[10px] text-muted-foreground">⌘X</span>
+          <Scissors className="mr-2 size-3.5" /> Cut{" "}
+          <span className="ml-auto text-[10px] text-muted-foreground">⌘X</span>
         </ContextMenuItem>
         <ContextMenuItem disabled={clipboardCount === 0} onSelect={() => onPasteHere()}>
-          <ClipboardPaste className="mr-2 size-3.5" /> Paste {clipboardCount > 0 ? `(${clipboardCount})` : ""} <span className="ml-auto text-[10px] text-muted-foreground">⌘V</span>
+          <ClipboardPaste className="mr-2 size-3.5" /> Paste{" "}
+          {clipboardCount > 0 ? `(${clipboardCount})` : ""}{" "}
+          <span className="ml-auto text-[10px] text-muted-foreground">⌘V</span>
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => onDuplicate(idsForOp())}>
@@ -1175,7 +1230,10 @@ function DraggableResource({
           <CopyIcon className="mr-2 size-3.5" /> Copy to folder…
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={() => onTrash(idsForOp())}>
+        <ContextMenuItem
+          className="text-destructive focus:text-destructive"
+          onSelect={() => onTrash(idsForOp())}
+        >
           <Trash2 className="mr-2 size-3.5" /> Move to trash
         </ContextMenuItem>
       </ContextMenuContent>
@@ -1185,6 +1243,14 @@ function DraggableResource({
 
 function TypeIcon({ type }: { type: ResourceType }) {
   const Icon =
-    type === "video" ? Film : type === "pdf" ? FileText : type === "markdown" ? FileCode : type === "image" ? ImageIcon : FileIcon;
+    type === "video"
+      ? Film
+      : type === "pdf"
+        ? FileText
+        : type === "markdown"
+          ? FileCode
+          : type === "image"
+            ? ImageIcon
+            : FileIcon;
   return <Icon className="size-4 shrink-0 text-muted-foreground" />;
 }

@@ -7,17 +7,47 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import { exportNotesZip, exportProgressCsv, exportFullBackup, importFullBackup, exportSummariesMarkdownPack, exportSummariesPdf } from "@/services/exportService";
+import {
+  exportNotesZip,
+  exportProgressCsv,
+  exportFullBackup,
+  importFullBackup,
+  exportSummariesMarkdownPack,
+  exportSummariesPdf,
+} from "@/services/exportService";
 import { resetAllData, resetDriveCache } from "@/services/storageService";
 import { isFsSupported, pickDirectory } from "@/services/fileSystemService";
-import { isBackupSupported, pickBackupFolder, performAutoBackup, disableAutoBackup } from "@/services/autoBackupService";
+import {
+  isBackupSupported,
+  pickBackupFolder,
+  performAutoBackup,
+  disableAutoBackup,
+} from "@/services/autoBackupService";
 import { extractFolderId, scanFolder, ingestScannedFiles } from "@/services/driveService";
 import { setSetting } from "@/services/storageService";
-import { checkTelegramHealth, scanTelegramChat, ingestTelegramFiles, sendTelegramOtp, verifyTelegramOtp } from "@/services/telegramService";
+import {
+  checkTelegramHealth,
+  scanTelegramChat,
+  ingestTelegramFiles,
+  sendTelegramOtp,
+  verifyTelegramOtp,
+} from "@/services/telegramService";
 import { looksLikeChatId } from "@/services/telegramParse";
 import { getActiveWorkspace } from "@/services/workspaceService";
 import { toast } from "sonner";
-import { Download, Upload, RefreshCw, Trash2, FolderOpen, Sparkles, Eraser, Unplug, Send, HardDrive, Brain } from "lucide-react";
+import {
+  Download,
+  Upload,
+  RefreshCw,
+  Trash2,
+  FolderOpen,
+  Sparkles,
+  Eraser,
+  Unplug,
+  Send,
+  HardDrive,
+  Brain,
+} from "lucide-react";
 
 export const Route = createFileRoute("/settings")({
   component: () => (
@@ -96,7 +126,10 @@ function SettingsPage() {
     const t = toast.loading("Sending OTP…");
     try {
       const res = await sendTelegramOtp(apiId, tgApiHash.trim(), tgPhone.trim());
-      if (!res.ok) { toast.error(res.error ?? "Failed to send code", { id: t }); return; }
+      if (!res.ok) {
+        toast.error(res.error ?? "Failed to send code", { id: t });
+        return;
+      }
       setTgPhoneCodeHash(res.phoneCodeHash!);
       setTgPendingSession(res.pendingSession!);
       await setSetting("telegramApiId", apiId);
@@ -113,8 +146,18 @@ function SettingsPage() {
     if (!tgOtp.trim()) return toast.error("Enter the OTP");
     const t = toast.loading("Verifying…");
     try {
-      const res = await verifyTelegramOtp(apiId, tgApiHash.trim(), tgPhone.trim(), tgOtp.trim(), tgPhoneCodeHash, tgPendingSession);
-      if (!res.ok) { toast.error(res.error ?? "Verification failed", { id: t }); return; }
+      const res = await verifyTelegramOtp(
+        apiId,
+        tgApiHash.trim(),
+        tgPhone.trim(),
+        tgOtp.trim(),
+        tgPhoneCodeHash,
+        tgPendingSession,
+      );
+      if (!res.ok) {
+        toast.error(res.error ?? "Verification failed", { id: t });
+        return;
+      }
       await setSetting("telegramSession", res.session!);
       await refresh();
       setTgStep("ready");
@@ -136,7 +179,10 @@ function SettingsPage() {
       const result = await ingestTelegramFiles(files);
       await setSetting("appInitialized", true);
       await refresh();
-      toast.success(`Found ${files.length} files (${result.imported} new, ${result.skipped} skipped)`, { id: t });
+      toast.success(
+        `Found ${files.length} files (${result.imported} new, ${result.skipped} skipped)`,
+        { id: t },
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Scan failed", { id: t });
     } finally {
@@ -161,7 +207,9 @@ function SettingsPage() {
 
   async function pickOfflineFolder() {
     if (!isFsSupported()) {
-      toast.error("Your browser doesn't support File System Access. Use Chrome, Edge, or Electron.");
+      toast.error(
+        "Your browser doesn't support File System Access. Use Chrome, Edge, or Electron.",
+      );
       return;
     }
     const handle = await pickDirectory();
@@ -191,7 +239,12 @@ function SettingsPage() {
   }
 
   async function doDisconnectDrive() {
-    if (!confirm("Disconnect Drive folder and clear cached library for this workspace?\n\nNotes and flashcards are preserved.")) return;
+    if (
+      !confirm(
+        "Disconnect Drive folder and clear cached library for this workspace?\n\nNotes and flashcards are preserved.",
+      )
+    )
+      return;
     await resetDriveCache();
     toast.success("Drive folder disconnected. Library cache cleared.");
     await refresh();
@@ -201,7 +254,12 @@ function SettingsPage() {
   async function doResetWorkspace() {
     const ws = getActiveWorkspace();
     const label = ws?.name ?? "this workspace";
-    if (!confirm(`Wipe ALL data in "${label}"?\n\nThis clears resources, folders, notes, flashcards, progress, and settings for this workspace only. Other workspaces are untouched.`)) return;
+    if (
+      !confirm(
+        `Wipe ALL data in "${label}"?\n\nThis clears resources, folders, notes, flashcards, progress, and settings for this workspace only. Other workspaces are untouched.`,
+      )
+    )
+      return;
     await resetAllData();
     toast.success(`"${label}" reset`);
     navigate({ to: "/onboarding" });
@@ -219,7 +277,9 @@ function SettingsPage() {
       <Section title="Workspace">
         <Field label="Active workspace">
           <div className="flex items-center gap-2">
-            <code className="rounded bg-surface-2 px-2 py-1 text-xs">{activeWs?.name ?? "None"}</code>
+            <code className="rounded bg-surface-2 px-2 py-1 text-xs">
+              {activeWs?.name ?? "None"}
+            </code>
             <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/workspaces" })}>
               Switch / sign out
             </Button>
@@ -240,7 +300,9 @@ function SettingsPage() {
 
       <Section title="Drive">
         <Field label="Current folder ID">
-          <code className="rounded bg-surface-2 px-2 py-1 text-xs">{(settings.driveId as string) || "Not connected"}</code>
+          <code className="rounded bg-surface-2 px-2 py-1 text-xs">
+            {(settings.driveId as string) || "Not connected"}
+          </code>
         </Field>
         <Field label="Connect a new folder">
           <div className="flex gap-2">
@@ -272,7 +334,12 @@ function SettingsPage() {
           <>
             <p className="text-xs text-muted-foreground">
               Get your API ID and Hash from{" "}
-              <a href="https://my.telegram.org" target="_blank" rel="noreferrer" className="underline">
+              <a
+                href="https://my.telegram.org"
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+              >
                 my.telegram.org
               </a>{" "}
               → "API development tools". This lets you read any channel you're a member of.
@@ -299,7 +366,10 @@ function SettingsPage() {
                 onChange={(e) => setTgPhone(e.target.value)}
               />
             </Field>
-            <Button onClick={sendTgCode} disabled={!tgApiId.trim() || !tgApiHash.trim() || !tgPhone.trim()}>
+            <Button
+              onClick={sendTgCode}
+              disabled={!tgApiId.trim() || !tgApiHash.trim() || !tgPhone.trim()}
+            >
               <Send className="mr-2 size-4" /> Send OTP
             </Button>
           </>
@@ -311,11 +381,7 @@ function SettingsPage() {
               Enter the code sent to your Telegram app (not SMS).
             </p>
             <Field label="OTP Code">
-              <Input
-                placeholder="12345"
-                value={tgOtp}
-                onChange={(e) => setTgOtp(e.target.value)}
-              />
+              <Input placeholder="12345" value={tgOtp} onChange={(e) => setTgOtp(e.target.value)} />
             </Field>
             <Button onClick={verifyTgCode} disabled={!tgOtp.trim()}>
               Verify & Login
@@ -339,7 +405,8 @@ function SettingsPage() {
             </Field>
             <div className="flex flex-wrap gap-2">
               <Button onClick={scanTelegram} disabled={tgScanning || !tgChatId.trim()}>
-                <RefreshCw className={`mr-2 size-4 ${tgScanning ? "animate-spin" : ""}`} /> Scan chat
+                <RefreshCw className={`mr-2 size-4 ${tgScanning ? "animate-spin" : ""}`} /> Scan
+                chat
               </Button>
               <Button variant="outline" onClick={disconnectTelegram}>
                 <Unplug className="mr-2 size-4" /> Disconnect
@@ -432,7 +499,8 @@ function SettingsPage() {
 
       <Section title="Auto-Backup">
         <p className="text-xs text-muted-foreground">
-          Automatically save your workspace data to a folder you choose. Use it to restore on another device.
+          Automatically save your workspace data to a folder you choose. Use it to restore on
+          another device.
         </p>
         <Field label="Backup folder">
           <div className="flex items-center gap-2">
@@ -440,7 +508,9 @@ function SettingsPage() {
               variant="outline"
               onClick={async () => {
                 if (!isBackupSupported()) {
-                  toast.error("Your browser doesn't support File System Access. Use Chrome or Edge.");
+                  toast.error(
+                    "Your browser doesn't support File System Access. Use Chrome or Edge.",
+                  );
                   return;
                 }
                 const h = await pickBackupFolder();
@@ -494,20 +564,38 @@ function SettingsPage() {
 
       <Section title="AI">
         <p className="text-xs text-muted-foreground">
-          Configure your AI provider for summaries, quizzes, flashcards, and auto-notes.
-          Supports any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, LM Studio) or Gemini.
+          Configure your AI provider for summaries, quizzes, flashcards, auto-notes, the Doubt
+          Buster, and the in-session assistant. Supports any OpenAI-compatible endpoint (OpenAI,
+          OpenRouter, Ollama, LM Studio) or Gemini. Video understanding samples on-screen frames, so
+          pick a vision-capable model — Gemini (<code>gemini-3-flash-preview</code>) is recommended.
         </p>
         <Field label="Provider">
           <select
             className="h-9 rounded-md border border-border bg-surface-2 px-3 text-sm"
             value={(settings.aiProvider as string) ?? "openai-compatible"}
-            onChange={(e) => update("aiProvider", e.target.value)}
+            onChange={async (e) => {
+              const provider = e.target.value;
+              await update("aiProvider", provider);
+              // Auto-fill sensible defaults so the user never has to type the
+              // endpoint/model again. Only fill blanks — never clobber a value
+              // the user already set. Both persist to IndexedDB immediately.
+              const defaults =
+                provider === "gemini"
+                  ? {
+                      openaiEndpoint: "https://generativelanguage.googleapis.com/v1beta/openai",
+                      aiModel: "gemini-3-flash-preview",
+                    }
+                  : { openaiEndpoint: "https://api.openai.com/v1", aiModel: "gpt-4o-mini" };
+              if (!(settings.openaiEndpoint as string)?.trim())
+                await update("openaiEndpoint", defaults.openaiEndpoint);
+              if (!(settings.aiModel as string)?.trim()) await update("aiModel", defaults.aiModel);
+            }}
           >
             <option value="openai-compatible">OpenAI-Compatible</option>
             <option value="gemini">Gemini (free tier)</option>
           </select>
         </Field>
-        <Field label="Endpoint URL">
+        <Field label="Endpoint URL (optional — auto-filled)">
           <Input
             placeholder={
               (settings.aiProvider as string) === "gemini"
@@ -530,7 +618,7 @@ function SettingsPage() {
           <Input
             placeholder={
               (settings.aiProvider as string) === "gemini"
-                ? "gemini-2.0-flash"
+                ? "gemini-3-flash-preview"
                 : "gpt-4o-mini"
             }
             value={(settings.aiModel as string) ?? ""}
@@ -541,10 +629,15 @@ function SettingsPage() {
           variant="outline"
           size="sm"
           onClick={async () => {
-            const endpoint = (settings.openaiEndpoint as string) || "";
+            const provider = (settings.aiProvider as string) ?? "openai-compatible";
+            const endpoint =
+              (settings.openaiEndpoint as string)?.trim() ||
+              (provider === "gemini"
+                ? "https://generativelanguage.googleapis.com/v1beta/openai"
+                : "https://api.openai.com/v1");
             const key = (settings.openaiApiKey as string) || "";
-            if (!endpoint || !key) {
-              toast.error("Enter endpoint URL and API key first");
+            if (!key) {
+              toast.error("Enter your API key first");
               return;
             }
             const t = toast.loading("Testing connection…");
@@ -555,7 +648,9 @@ function SettingsPage() {
               if (res.ok) toast.success("Connection successful", { id: t });
               else toast.error(`Failed: ${res.status} ${res.statusText}`, { id: t });
             } catch (e) {
-              toast.error(`Connection error: ${e instanceof Error ? e.message : "Unknown"}`, { id: t });
+              toast.error(`Connection error: ${e instanceof Error ? e.message : "Unknown"}`, {
+                id: t,
+              });
             }
           }}
         >
@@ -624,7 +719,9 @@ function SettingsPage() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-4 rounded-xl border border-border bg-surface-1 p-5">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{title}</h2>
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </h2>
       <div className="space-y-4">{children}</div>
     </section>
   );

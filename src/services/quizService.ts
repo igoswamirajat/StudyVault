@@ -1,6 +1,6 @@
 import { getDb, type Quiz, type Resource } from "@/db/schema";
 import { aiGenerateQuiz } from "./aiService";
-import { getOrCreateSummary } from "./notesService";
+import { buildResourceContext, gatherResourceMedia } from "./aiContext";
 
 const FALLBACK = [
   {
@@ -11,22 +11,21 @@ const FALLBACK = [
   },
 ];
 
-export async function generateQuizForResource(resource: Resource, opts?: { force?: boolean }): Promise<Quiz> {
+export async function generateQuizForResource(
+  resource: Resource,
+  opts?: { force?: boolean },
+): Promise<Quiz> {
   const db = getDb();
   if (!opts?.force) {
     const existing = await db.quizzes.where("resourceId").equals(resource.id).first();
     if (existing) return existing;
   }
-  const summary = await getOrCreateSummary(resource);
+  const context = await buildResourceContext(resource);
+  const media = await gatherResourceMedia(resource);
   let questions: Quiz["questions"];
   let source: "ai" | "manual" = "ai";
   try {
-    const result = await aiGenerateQuiz(
-      resource.name,
-      summary.contentMarkdown || resource.name,
-      resource.type,
-      5
-    );
+    const result = await aiGenerateQuiz(resource.name, context, resource.type, 5, media);
     questions = result.questions;
   } catch (err) {
     console.warn("AI quiz failed, using fallback", err);
@@ -34,9 +33,13 @@ export async function generateQuizForResource(resource: Resource, opts?: { force
     source = "manual";
   }
   const quiz: Quiz = { resourceId: resource.id, questions, generatedAt: Date.now(), source };
-  // Replace any existing quiz for this resource
-  await db.quizzes.where("resourceId").equals(resource.id).delete();
-  const id = await db.quizzes.add(quiz);
+  // Replace any existing quiz for this resource atomically — if the delete
+  // succeeded but the add failed (bad shape, quota, tab closed), the user would
+  // otherwise be left with no quiz at all.
+  const id = await db.transaction("rw", db.quizzes, async () => {
+    await db.quizzes.where("resourceId").equals(resource.id).delete();
+    return db.quizzes.add(quiz);
+  });
   return { ...quiz, id: id as number };
 }
 
@@ -46,4 +49,3 @@ export async function generateQuiz(resourceId: string): Promise<Quiz> {
   if (!resource) throw new Error("Resource not found");
   return generateQuizForResource(resource);
 }
-

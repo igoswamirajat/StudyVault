@@ -1,5 +1,80 @@
 import { getDb } from "@/db/schema";
-import { generateQuizAI, generateFlashcardsAI, generateSummaryAI, generateAutoNoteAI, suggestSortOrderAI } from "@/lib/ai.functions";
+import {
+  generateQuizAI,
+  generateFlashcardsAI,
+  generateSummaryAI,
+  generateAutoNoteAI,
+  suggestSortOrderAI,
+  answerDoubtAI,
+  studyAssistantAI,
+} from "@/lib/ai.functions";
+
+/** A single turn in a doubt/assistant conversation. */
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/**
+ * Translates a raw AI-provider error into something a user can act on. Provider
+ * messages are dense ("limit: 0, model: gemini-2.5-pro") and routinely confuse
+ * free-tier users, so we pattern-match the common failure modes and point at the
+ * concrete fix (usually: change the model in Settings → AI).
+ */
+export function describeAiError(e: unknown): Error {
+  const raw = e instanceof Error ? e.message : String(e);
+  const text = raw.toLowerCase();
+
+  // Google has pulled gemini-2.5-pro off the free tier entirely (quota limit: 0).
+  if (text.includes("quota") && text.includes("limit: 0")) {
+    return new Error(
+      "Your free Gemini key has no quota for this model (Google set it to 0). " +
+        "Go to Settings → AI and switch the Model to a free-tier one like " +
+        "gemini-3-flash-preview or gemini-3.5-flash-lite.",
+    );
+  }
+  // "models/gemini-2.5-flash is no longer available to new users" etc.
+  if (text.includes("no longer available")) {
+    return new Error(
+      "That Gemini model is no longer available to new free-tier keys. " +
+        "Go to Settings → AI and switch the Model to gemini-3-flash-preview " +
+        "or gemini-3.5-flash-lite.",
+    );
+  }
+  // gemini-2.0-flash is fully shut down.
+  if (text.includes("shut down") || text.includes("not found") || text.includes("not_found")) {
+    return new Error(
+      "That Gemini model is no longer available. Go to Settings → AI and switch " +
+        "the Model to gemini-3-flash-preview or gemini-3.5-flash-lite.",
+    );
+  }
+  if (text.includes("api key not valid") || text.includes("api_key_invalid") || text.includes("api_key")) {
+    return new Error(
+      "Your API key was rejected. Go to Settings → AI and double-check the key " +
+        "(it should start with AIza... for Gemini or sk-... for OpenAI-compatible).",
+    );
+  }
+  if (text.includes("permission denied") || text.includes("permission_denied")) {
+    return new Error(
+      "Your API key doesn't have access to this model. Either enable the model " +
+        "in your provider dashboard or pick a different Model in Settings → AI.",
+    );
+  }
+  // Rate limits — transient, worth a retry.
+  if (text.includes("429") || text.includes("rate limit") || text.includes("rate_limit")) {
+    return new Error(
+      "The AI provider is rate-limiting you right now. Wait a few seconds and try again.",
+    );
+  }
+  if (text.includes("no ai provider configured")) {
+    return new Error(
+      "No AI provider configured. Go to Settings → AI to add your endpoint and API key.",
+    );
+  }
+  // Fall back to the provider's own message rather than swallowing it — the
+  // user still gets a hint, just not a curated one.
+  return new Error(raw || "AI request failed");
+}
 
 async function getAiConfig() {
   const db = getDb();
@@ -14,37 +89,179 @@ async function getAiConfig() {
   const apiKey = (keyRow?.value as string) ?? "";
   let model = (modelRow?.value as string) ?? "";
 
-  if (provider === "gemini" && !endpoint) {
-    endpoint = "https://generativelanguage.googleapis.com/v1beta/openai";
-    if (!model) model = "gemini-2.0-flash";
+  if (provider === "gemini") {
+    // Native Gemini provider ignores endpoint, but keep the shim URL as a
+    // sensible default for anyone who switches provider back.
+    if (!endpoint) endpoint = "https://generativelanguage.googleapis.com/v1beta/openai";
+    if (!model) model = "gemini-3-flash-preview";
+  } else {
+    // OpenAI-compatible: default the endpoint/model so a user who only pasted
+    // an API key still works without re-entering the URL every time.
+    if (!endpoint) endpoint = "https://api.openai.com/v1";
+    if (!model) model = "gpt-4o-mini";
   }
 
-  return { endpoint, apiKey, model };
+  return { provider, endpoint, apiKey, model };
 }
 
-export async function aiGenerateQuiz(title: string, contentMarkdown: string, resourceType?: string, count?: number) {
-  const { endpoint, apiKey, model } = await getAiConfig();
-  return generateQuizAI({ data: { title, contentMarkdown, resourceType, count, endpoint, apiKey, model } });
+/** Media payload for content-aware AI (sampled frames and/or native video). */
+export interface AiMedia {
+  images?: string[];
+  videoDataUrl?: string;
 }
 
-export async function aiGenerateFlashcards(title: string, contentMarkdown: string, resourceType?: string, count?: number) {
-  const { endpoint, apiKey, model } = await getAiConfig();
-  return generateFlashcardsAI({ data: { title, contentMarkdown, resourceType, count, endpoint, apiKey, model } });
+/** One turn of a grounded chat (Doubt Buster / assistant). */
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
 }
 
-export async function aiGenerateSummary(title: string, content: string) {
-  const { endpoint, apiKey, model } = await getAiConfig();
-  return generateSummaryAI({ data: { title, content, endpoint, apiKey, model } });
+export async function aiGenerateQuiz(
+  title: string,
+  contentMarkdown: string,
+  resourceType?: string,
+  count?: number,
+  media?: AiMedia,
+) {
+  const { provider, endpoint, apiKey, model } = await getAiConfig();
+  return generateQuizAI({
+    data: {
+      title,
+      contentMarkdown,
+      resourceType,
+      count,
+      provider,
+      endpoint,
+      apiKey,
+      model,
+      ...media,
+    },
+  });
 }
 
-export async function aiGenerateAutoNote(title: string, content: string, resourceType?: string) {
-  const { endpoint, apiKey, model } = await getAiConfig();
-  return generateAutoNoteAI({ data: { title, content, resourceType, endpoint, apiKey, model } });
+export async function aiGenerateFlashcards(
+  title: string,
+  contentMarkdown: string,
+  resourceType?: string,
+  count?: number,
+  media?: AiMedia,
+) {
+  const { provider, endpoint, apiKey, model } = await getAiConfig();
+  return generateFlashcardsAI({
+    data: {
+      title,
+      contentMarkdown,
+      resourceType,
+      count,
+      provider,
+      endpoint,
+      apiKey,
+      model,
+      ...media,
+    },
+  });
 }
 
-export async function aiSuggestSortOrder(resources: Array<{ id: string; name: string; type: string; folderPath?: string }>) {
-  const { endpoint, apiKey, model } = await getAiConfig();
-  return suggestSortOrderAI({ data: { resources, endpoint, apiKey, model } });
+export async function aiGenerateSummary(title: string, content: string, media?: AiMedia) {
+  const { provider, endpoint, apiKey, model } = await getAiConfig();
+  try {
+    return await generateSummaryAI({
+      data: { title, content, provider, endpoint, apiKey, model, ...media },
+    });
+  } catch (e) {
+    throw describeAiError(e);
+  }
+}
+
+export async function aiGenerateAutoNote(
+  title: string,
+  content: string,
+  resourceType?: string,
+  media?: AiMedia,
+) {
+  const { provider, endpoint, apiKey, model } = await getAiConfig();
+  try {
+    return await generateAutoNoteAI({
+      data: { title, content, resourceType, provider, endpoint, apiKey, model, ...media },
+    });
+  } catch (e) {
+    throw describeAiError(e);
+  }
+}
+
+export async function aiSuggestSortOrder(
+  resources: Array<{ id: string; name: string; type: string; folderPath?: string }>,
+) {
+  const { provider, endpoint, apiKey, model } = await getAiConfig();
+  return suggestSortOrderAI({ data: { resources, provider, endpoint, apiKey, model } });
+}
+
+export async function aiAnswerDoubt(
+  title: string,
+  context: string,
+  history: ChatTurn[],
+  media?: AiMedia,
+) {
+  const { provider, endpoint, apiKey, model } = await getAiConfig();
+  try {
+    return await answerDoubtAI({
+      data: { title, context, history, provider, endpoint, apiKey, model, ...media },
+    });
+  } catch (e) {
+    throw describeAiError(e);
+  }
+}
+
+/** A single action the assistant asks the client to perform. */
+export interface AssistantAction {
+  type:
+    | "open_resource"
+    | "go_to_route"
+    | "next"
+    | "prev"
+    | "mark_complete"
+    | "create_unit"
+    | "move_to_unit"
+    | "start_studying"
+    | "generate_summary"
+    | "generate_flashcards"
+    | "generate_quiz";
+  resourceName?: string;
+  resourceId?: string;
+  route?: string;
+  unitName?: string;
+  parentPath?: string;
+  resourceNames?: string[];
+  reason?: string;
+}
+
+/**
+ * Actions that change stored data and therefore need explicit user
+ * confirmation before running. Navigation and AI-generation actions are
+ * reversible/safe and run immediately.
+ */
+const MUTATING_ACTION_TYPES = new Set<AssistantAction["type"]>([
+  "mark_complete",
+  "create_unit",
+  "move_to_unit",
+]);
+
+export function isMutatingAction(action: AssistantAction): boolean {
+  return MUTATING_ACTION_TYPES.has(action.type);
+}
+
+export async function aiStudyAssistant(
+  history: ChatTurn[],
+  sessionContext: string,
+): Promise<{ reply: string; actions: AssistantAction[] }> {
+  const { provider, endpoint, apiKey, model } = await getAiConfig();
+  try {
+    return await studyAssistantAI({
+      data: { history, sessionContext, provider, endpoint, apiKey, model },
+    });
+  } catch (e) {
+    throw describeAiError(e);
+  }
 }
 
 export async function isAiConfigured(): Promise<boolean> {
