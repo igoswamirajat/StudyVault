@@ -21,7 +21,9 @@ export function createLovableAiGatewayProvider(apiKey: string) {
 
 export function createUserAiProvider(endpoint: string, apiKey: string) {
   const baseURL = endpoint.replace(/\/$/, "");
-  const localTestHeaders = isLocalEndpoint(baseURL) ? { "x-internal-test": "true" } : {};
+  const localTestHeaders: Record<string, string> = isLocalEndpoint(baseURL)
+    ? { "x-internal-test": "true" }
+    : {};
   return createOpenAICompatible({
     name: "user-ai",
     baseURL,

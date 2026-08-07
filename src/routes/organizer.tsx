@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/context-menu";
 import { InlineRename } from "@/components/files/InlineRename";
 import { MoveToFolderDialog } from "@/components/files/MoveToFolderDialog";
+import { NewContentMenu } from "@/components/common/NewContentMenu";
 import {
   trashResources,
   restoreResources,
@@ -206,6 +207,7 @@ function Organizer() {
   const orphans = useMemo(() => unassignedResources(resources), [resources]);
 
   const [selectedPath, setSelectedPath] = useState<string>("");
+  const [newItemOpen, setNewItemOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
@@ -408,6 +410,7 @@ function Organizer() {
             >
               <FolderPlus className="size-3.5" />
             </Button>
+            <NewContentMenu defaultFolderPath={selectedPath === "__unassigned__" ? "" : selectedPath} />
           </div>
           <div className="space-y-0.5">
             {tree.map((node) => (

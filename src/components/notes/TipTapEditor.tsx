@@ -222,7 +222,7 @@ export function TipTapEditor({
         </ToolbarBtn>
         <span className="mx-1 h-4 w-px bg-border" />
         <ToolbarBtn
-          onClick={onTogglePreview}
+          onClick={() => onTogglePreview?.()}
           aria-label={previewMode ? "Edit note" : "Render markdown"}
         >
           {previewMode ? <Pencil className="size-3.5" /> : <Eye className="size-3.5" />}

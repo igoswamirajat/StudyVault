@@ -131,16 +131,52 @@ export async function readTextResource(resourceId: string): Promise<string | nul
   const db = getDb();
   const resource = await db.resources.get(resourceId);
   if (!resource) return null;
-  if (!resource.isDownloaded && !resource.telegramFileId && resource.source !== "local")
-    return null;
 
-  const url = await resourceUrl(resourceId);
-  try {
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    return await response.text();
-  } finally {
-    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+  // Created in-app (no remote/disk source): fall back to the scaffold note content.
+  const isInAppLocal =
+    resource.source === "local" && !resource.localPath && !resource.isDownloaded;
+
+  if (!isInAppLocal) {
+    if (!resource.isDownloaded && !resource.telegramFileId && resource.source !== "local")
+      return null;
+
+    const url = await resourceUrl(resourceId);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      return await response.text();
+    } finally {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    }
+  }
+
+  const linkedNote = await db.notes
+    .where("resourceId")
+    .equals(resourceId)
+    .filter((n) => !n.isSummary)
+    .first();
+  return linkedNote?.contentMarkdown ?? "";
+}
+
+export async function writeTextResource(resourceId: string, text: string): Promise<void> {
+  const db = getDb();
+  const resource = await db.resources.get(resourceId);
+  if (!resource) return;
+
+  const isInAppLocal =
+    resource.source === "local" && !resource.localPath && !resource.isDownloaded;
+  if (isInAppLocal) {
+    const note = await db.notes
+      .where("resourceId")
+      .equals(resourceId)
+      .filter((n) => !n.isSummary)
+      .first();
+    if (note) {
+      await db.notes.update(note.id, {
+        contentMarkdown: text,
+        updatedAt: Date.now(),
+      });
+    }
   }
 }
 

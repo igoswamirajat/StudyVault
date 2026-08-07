@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import type { Resource } from "@/db/schema";
-import { readTextResource } from "@/services/fileSystemService";
+import { readLocalResource, readTextResource, writeTextResource } from "@/services/fileSystemService";
 import { driveOpenUrl } from "@/services/driveService";
 import { Button } from "@/components/ui/button";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Play } from "lucide-react";
 import { HighlightCapture } from "./HighlightCapture";
 import { MarkdownRenderer } from "@/components/notes/MarkdownRenderer";
 
@@ -144,4 +144,154 @@ export function ImageViewer({ resource }: { resource: Resource }) {
       <img src={src} alt={resource.name} className="max-h-full max-w-full object-contain" />
     </div>
   );
+}
+
+function EditableTextResource({
+  resource,
+  isCode = false,
+  language = "javascript",
+  isHtml = false,
+}: {
+  resource: Resource;
+  isCode?: boolean;
+  language?: string;
+  isHtml?: boolean;
+}) {
+  const [content, setContent] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [output, setOutput] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState(isHtml);
+
+  useEffect(() => {
+    let active = true;
+    setContent(null);
+    (async () => {
+      try {
+        const text = await readTextResource(resource.id);
+        if (active) setContent(text ?? "");
+      } catch {
+        if (active) setContent("");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [resource.id]);
+
+  async function save() {
+    if (content == null || !dirty) return;
+    await writeTextResource(resource.id, content);
+    setDirty(false);
+  }
+
+  async function runCode() {
+    if (content == null || language !== "javascript") {
+      setOutput("Only JavaScript can run inline for now.");
+      return;
+    }
+    setRunning(true);
+    setOutput("");
+    setError(null);
+    try {
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+      let result: unknown;
+      try {
+        // eslint-disable-next-line no-eval
+        result = eval(content);
+      } finally {
+        console.log = originalLog;
+      }
+      if (result !== undefined) logs.push(String(result));
+      setOutput(logs.join("\n") || "(no output)");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  if (content == null) return <div className="p-8 text-muted-foreground">Loading…</div>;
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+        <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          {resource.name} {dirty && "· unsaved"}
+        </span>
+        <div className="flex items-center gap-1">
+          {isHtml && (
+            <Button size="sm" variant="outline" onClick={() => setPreview((v) => !v)} className="h-7">
+              {preview ? "Edit" : "Preview"}
+            </Button>
+          )}
+          {isCode && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={running}
+              onClick={() => void runCode()}
+              className="h-7"
+            >
+              <Play className="mr-1 size-3" /> {running ? "Running…" : "Run"}
+            </Button>
+          )}
+          <Button size="sm" variant="outline" disabled={!dirty} onClick={() => void save()} className="h-7">
+            Save
+          </Button>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {isHtml && preview ? (
+          <iframe
+            srcDoc={content}
+            sandbox="allow-same-origin"
+            title={resource.name}
+            className="size-full border-0 bg-white"
+          />
+        ) : isCode ? (
+          <textarea
+            value={content}
+            onChange={(e) => {
+              setContent(e.target.value);
+              setDirty(true);
+            }}
+            spellCheck={false}
+            className="h-full w-full resize-none bg-background p-4 font-mono text-sm outline-none"
+          />
+        ) : (
+          <textarea
+            value={content}
+            onChange={(e) => {
+              setContent(e.target.value);
+              setDirty(true);
+            }}
+            className="h-full w-full resize-none bg-background p-4 text-sm outline-none"
+          />
+        )}
+      </div>
+      {(output || error) && (
+        <pre
+          className={`whitespace-pre-wrap border-t border-border px-4 py-3 font-mono text-xs ${error ? "text-destructive" : "text-muted-foreground"}`}
+        >
+          {error ?? output}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+export function EditableMarkdownViewer({ resource }: { resource: Resource }) {
+  return <EditableTextResource resource={resource} />;
+}
+
+export function EditableCodeViewer({ resource }: { resource: Resource }) {
+  return <EditableTextResource resource={resource} isCode language="javascript" />;
+}
+
+export function EditableHtmlViewer({ resource }: { resource: Resource }) {
+  return <EditableTextResource resource={resource} isHtml />;
 }

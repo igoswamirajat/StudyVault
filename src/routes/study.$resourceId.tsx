@@ -7,6 +7,11 @@ import { ClientOnly } from "@/components/common/ClientOnly";
 import { VideoViewer, type VideoController } from "@/components/study/VideoViewer";
 import { PdfViewer } from "@/components/study/PdfViewer";
 import { MarkdownViewer, HtmlViewer, ImageViewer } from "@/components/study/MarkdownViewer";
+import {
+  EditableCodeViewer,
+  EditableHtmlViewer,
+  EditableMarkdownViewer,
+} from "@/components/study/MarkdownViewer";
 import { NotesPanel } from "@/components/notes/NotesPanel";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +62,17 @@ export const Route = createFileRoute("/study/$resourceId")({
     </ClientOnly>
   ),
 });
+
+/** True when the resource was created in-app (blank file) — content lives in a linked note. */
+function isEditableDocument(resource: { source?: string; isDownloaded?: boolean; localPath?: string | null }): boolean {
+  return resource.source === "local" && !resource.isDownloaded && !resource.localPath;
+}
+
+function folderMatchesUnit(folderPath: string | undefined, unitName: string): boolean {
+  if (!folderPath || !unitName) return false;
+  const last = folderPath.split("/").filter(Boolean).pop();
+  return last ? last.toLowerCase() === unitName.toLowerCase() : false;
+}
 
 function StudyRoomError({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
@@ -472,11 +488,21 @@ function StudyRoom() {
               ) : resource.type === "pdf" ? (
                 <PdfViewer resource={resource} />
               ) : resource.type === "markdown" ? (
-                <MarkdownViewer resource={resource} />
+                isEditableDocument(resource) ? (
+                  <EditableMarkdownViewer resource={resource} />
+                ) : (
+                  <MarkdownViewer resource={resource} />
+                )
               ) : resource.type === "html" ? (
-                <HtmlViewer resource={resource} />
+                isEditableDocument(resource) ? (
+                  <EditableHtmlViewer resource={resource} />
+                ) : (
+                  <HtmlViewer resource={resource} />
+                )
               ) : resource.type === "image" ? (
                 <ImageViewer resource={resource} />
+              ) : resource.type === "other" && isEditableDocument(resource) ? (
+                <EditableCodeViewer resource={resource} />
               ) : (
                 <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
                   <div>

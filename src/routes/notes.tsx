@@ -1,16 +1,16 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useEffect } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { getDb, type Note } from "@/db/schema";
 import { ClientOnly } from "@/components/common/ClientOnly";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, Search, Trash2, FileText, Download } from "lucide-react";
+import { NewContentMenu } from "@/components/common/NewContentMenu";
 import { createNote, updateNote, deleteNote } from "@/services/notesService";
 import { TipTapEditor } from "@/components/notes/TipTapEditor";
 import { formatDistanceToNow } from "date-fns";
 import { saveAs } from "file-saver";
-import { useRef } from "react";
 
 export const Route = createFileRoute("/notes")({
   component: () => (
@@ -87,9 +87,7 @@ function NotesPage() {
         <div className="border-b border-border p-3">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-semibold">Notes</h2>
-            <Button size="sm" variant="ghost" onClick={handleNew}>
-              <Plus className="size-4" />
-            </Button>
+            <NewContentMenu variant="ghost" size="icon" label="" />
           </div>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />

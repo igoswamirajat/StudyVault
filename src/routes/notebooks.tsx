@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Code2, Download, Eye, FileCode2, Play, Plus, Trash2, Pencil } from "lucide-react";
 import { ClientOnly } from "@/components/common/ClientOnly";
+import { NewContentMenu } from "@/components/common/NewContentMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MarkdownRenderer } from "@/components/notes/MarkdownRenderer";
@@ -77,14 +78,7 @@ function NotebooksPage() {
           <p className="font-mono text-[11px] uppercase tracking-[0.25em] text-muted-foreground">
             Notebooks
           </p>
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => void handleNew()}
-            aria-label="New notebook"
-          >
-            <Plus className="size-4" />
-          </Button>
+          <NewContentMenu variant="ghost" size="icon" label="" />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {notebooks.map((notebook) => (

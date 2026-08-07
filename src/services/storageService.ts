@@ -65,13 +65,15 @@ export async function resetDriveCache(): Promise<void> {
   const driveFolders = (await db.folders.toArray()).filter((folder) => folder.source === "drive");
   await db.transaction(
     "rw",
-    db.resources,
-    db.folders,
-    db.days,
-    db.progress,
-    db.video_progress,
-    db.pdf_annotations,
-    db.bookmarks,
+    [
+      db.resources,
+      db.folders,
+      db.days,
+      db.progress,
+      db.video_progress,
+      db.pdf_annotations,
+      db.bookmarks,
+    ],
     async () => {
       for (const id of driveIds) {
         await db.resources.delete(id);
