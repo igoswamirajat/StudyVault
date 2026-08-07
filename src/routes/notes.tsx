@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, Search, Trash2, FileText, Download } from "lucide-react";
 import { NewContentMenu } from "@/components/common/NewContentMenu";
+import { BlockNoteEditor } from "@/components/notes/BlockNoteEditor";
+import { MarkdownRenderer } from "@/components/notes/MarkdownRenderer";
 import { createNote, updateNote, deleteNote } from "@/services/notesService";
-import { TipTapEditor } from "@/components/notes/TipTapEditor";
 import { useResizableSize, ResizeHandle } from "@/hooks/useResizableSize";
 import { formatDistanceToNow } from "date-fns";
 import { saveAs } from "file-saver";
@@ -152,6 +153,9 @@ function NotesPage() {
               <span className="mx-3 text-xs text-muted-foreground">
                 Saved {formatDistanceToNow(savedAt)} ago
               </span>
+              <Button size="sm" variant="ghost" onClick={() => setPreviewMode((value) => !value)}>
+                {previewMode ? "Edit" : "Render"}
+              </Button>
               <Button size="sm" variant="ghost" onClick={exportNote}>
                 <Download className="mr-1 size-3.5" /> Export
               </Button>
@@ -160,14 +164,11 @@ function NotesPage() {
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
-              <TipTapEditor
-                value={active.content}
-                onChange={handleChange}
-                maxHeightClassName="max-h-[65vh]"
-                previewMode={previewMode}
-                previewMarkdown={active.contentMarkdown}
-                onTogglePreview={() => setPreviewMode((value) => !value)}
-              />
+              {previewMode ? (
+                <MarkdownRenderer markdown={active.contentMarkdown} className="min-h-[140px]" />
+              ) : (
+                <BlockNoteEditor value={active.content} onChange={handleChange} />
+              )}
             </div>
           </>
         ) : (
