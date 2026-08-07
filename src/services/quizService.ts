@@ -20,7 +20,10 @@ export async function generateQuizForResource(
     const existing = await db.quizzes.where("resourceId").equals(resource.id).first();
     if (existing) return existing;
   }
-  const context = await buildResourceContext(resource);
+  const context = await buildResourceContext(resource, {
+    maxChars: 8000,
+    includeSiblings: false,
+  });
   const media = await gatherResourceMedia(resource);
   let questions: Quiz["questions"];
   let source: "ai" | "manual" = "ai";

@@ -34,6 +34,7 @@ import {
 } from "@/services/telegramService";
 import { looksLikeChatId } from "@/services/telegramParse";
 import { getActiveWorkspace } from "@/services/workspaceService";
+import { YoutubePlaylistImport } from "@/components/import/YoutubePlaylistImport";
 import { toast } from "sonner";
 import {
   Download,
@@ -321,6 +322,14 @@ function SettingsPage() {
         </Button>
       </Section>
 
+      <Section title="YouTube">
+        <p className="text-xs text-muted-foreground">
+          Import public playlists as ordered lessons. Existing notes and progress stay attached when
+          you re-import a playlist.
+        </p>
+        <YoutubePlaylistImport initialApiKey={(settings.youtubeApiKey as string | null) ?? null} />
+      </Section>
+
       <Section title="Telegram">
         <Field label="Status">
           <code className="rounded bg-surface-2 px-2 py-1 text-xs">
@@ -592,7 +601,7 @@ function SettingsPage() {
             }}
           >
             <option value="openai-compatible">OpenAI-Compatible</option>
-            <option value="gemini">Gemini (free tier)</option>
+            <option value="gemini">Gemini (direct Google API)</option>
           </select>
         </Field>
         <Field label="Endpoint URL (optional — auto-filled)">
@@ -605,6 +614,10 @@ function SettingsPage() {
             value={(settings.openaiEndpoint as string) ?? ""}
             onChange={(e) => update("openaiEndpoint", e.target.value)}
           />
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Using Omniroute, Groq, OpenRouter, Ollama, or LM Studio? Keep Provider as
+            <strong> OpenAI-Compatible</strong>. Direct Gemini mode ignores this endpoint.
+          </p>
         </Field>
         <Field label="API Key">
           <Input
@@ -640,13 +653,69 @@ function SettingsPage() {
               toast.error("Enter your API key first");
               return;
             }
-            const t = toast.loading("Testing connection…");
+            const base = endpoint.replace(/\/$/, "");
+            const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(
+              base,
+            );
+            const headers: Record<string, string> = {
+              Authorization: `Bearer ${key}`,
+              ...(isLocal ? { "x-internal-test": "true" } : {}),
+            };
+            const t = toast.loading("Testing model request…");
             try {
-              const res = await fetch(`${endpoint.replace(/\/$/, "")}/models`, {
-                headers: { Authorization: `Bearer ${key}` },
+              const modelsResponse = await fetch(`${base}/models`, { headers });
+              if (!modelsResponse.ok) {
+                toast.error(
+                  `Models request failed: ${modelsResponse.status} ${modelsResponse.statusText}`,
+                  { id: t },
+                );
+                return;
+              }
+              const catalog = (await modelsResponse.json()) as { data?: Array<{ id?: string }> };
+              const model = ((settings.aiModel as string) || "").trim();
+              const ids = (catalog.data ?? [])
+                .map((item) => item.id)
+                .filter((id): id is string => Boolean(id));
+              if (model && ids.length > 0 && !ids.includes(model)) {
+                const suffix = model.split("/").pop()?.toLowerCase() ?? model.toLowerCase();
+                const suggestions = ids
+                  .filter((id) => id.toLowerCase().includes(suffix))
+                  .slice(0, 3);
+                toast.error(
+                  `Model not found at endpoint: ${model}${suggestions.length ? ` · Try ${suggestions.join(", ")}` : ""}`,
+                  { id: t },
+                );
+                return;
+              }
+              const completionResponse = await fetch(`${base}/chat/completions`, {
+                method: "POST",
+                headers: { ...headers, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  model: model || ids[0],
+                  messages: [{ role: "user", content: "Reply with exactly: STUDYVAULT_OK" }],
+                  max_tokens: 32,
+                  stream: false,
+                }),
               });
-              if (res.ok) toast.success("Connection successful", { id: t });
-              else toast.error(`Failed: ${res.status} ${res.statusText}`, { id: t });
+              const completion = (await completionResponse.json().catch(() => null)) as {
+                choices?: Array<{ message?: { content?: string } }>;
+                error?: { message?: string };
+              } | null;
+              if (!completionResponse.ok) {
+                toast.error(
+                  `Model request failed: ${completionResponse.status} ${completion?.error?.message ?? completionResponse.statusText}`,
+                  { id: t },
+                );
+                return;
+              }
+              const answer = completion?.choices?.[0]?.message?.content?.trim();
+              if (!answer) {
+                toast.error("Endpoint returned no assistant text. Check model compatibility.", {
+                  id: t,
+                });
+                return;
+              }
+              toast.success(`Model request successful: ${answer.slice(0, 40)}`, { id: t });
             } catch (e) {
               toast.error(`Connection error: ${e instanceof Error ? e.message : "Unknown"}`, {
                 id: t,
@@ -654,7 +723,7 @@ function SettingsPage() {
             }
           }}
         >
-          <Brain className="mr-2 size-4" /> Test connection
+          <Brain className="mr-2 size-4" /> Test AI request
         </Button>
       </Section>
 

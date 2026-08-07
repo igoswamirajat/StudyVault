@@ -25,7 +25,12 @@ export async function exportSummariesMarkdownPack() {
   const resourceById = new Map(resources.map((r) => [r.id, r]));
   const zip = new JSZip();
 
-  const lines: string[] = [`# StudyVault Summaries`, ``, `_Exported ${format(new Date(), "PPP")}_`, ``];
+  const lines: string[] = [
+    `# StudyVault Summaries`,
+    ``,
+    `_Exported ${format(new Date(), "PPP")}_`,
+    ``,
+  ];
   const byDay = new Map<string, Note[]>();
   for (const s of summaries) {
     const r = s.resourceId ? resourceById.get(s.resourceId) : undefined;
@@ -149,8 +154,6 @@ export async function exportResourceSummaryPdf(resource: Resource) {
   doc.save(`${safe}.pdf`);
 }
 
-
-
 export async function exportProgressCsv() {
   const db = getDb();
   const [resources, progress] = await Promise.all([db.resources.toArray(), db.progress.toArray()]);
@@ -168,7 +171,10 @@ export async function exportProgressCsv() {
     ].join(",");
   });
   const csv = [header.join(","), ...rows].join("\n");
-  saveAs(new Blob([csv], { type: "text/csv" }), `studyvault-progress-${format(new Date(), "yyyyMMdd")}.csv`);
+  saveAs(
+    new Blob([csv], { type: "text/csv" }),
+    `studyvault-progress-${format(new Date(), "yyyyMMdd")}.csv`,
+  );
 }
 
 export async function exportFullBackup() {
@@ -186,6 +192,9 @@ export async function exportFullBackup() {
     bookmarks: await db.bookmarks.toArray(),
     quizzes: await db.quizzes.toArray(),
     settings: await db.settings.toArray(),
+    youtube_playlists: await db.youtube_playlists.toArray(),
+    notebooks: await db.notebooks.toArray(),
+    notebook_cells: await db.notebook_cells.toArray(),
   };
   saveAs(
     new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
@@ -199,7 +208,21 @@ export async function importFullBackup(file: File) {
   const db = getDb();
   await db.transaction(
     "rw",
-    [db.resources, db.days, db.notes, db.progress, db.study_sessions, db.video_progress, db.pdf_annotations, db.bookmarks, db.quizzes, db.settings],
+    [
+      db.resources,
+      db.days,
+      db.notes,
+      db.progress,
+      db.study_sessions,
+      db.video_progress,
+      db.pdf_annotations,
+      db.bookmarks,
+      db.quizzes,
+      db.settings,
+      db.youtube_playlists,
+      db.notebooks,
+      db.notebook_cells,
+    ],
     async () => {
       await Promise.all([
         db.resources.clear(),
@@ -212,6 +235,9 @@ export async function importFullBackup(file: File) {
         db.bookmarks.clear(),
         db.quizzes.clear(),
         db.settings.clear(),
+        db.youtube_playlists.clear(),
+        db.notebooks.clear(),
+        db.notebook_cells.clear(),
       ]);
       if (data.resources) await db.resources.bulkPut(data.resources);
       if (data.days) await db.days.bulkPut(data.days);
@@ -223,6 +249,9 @@ export async function importFullBackup(file: File) {
       if (data.bookmarks) await db.bookmarks.bulkPut(data.bookmarks);
       if (data.quizzes) await db.quizzes.bulkPut(data.quizzes);
       if (data.settings) await db.settings.bulkPut(data.settings);
+      if (data.youtube_playlists) await db.youtube_playlists.bulkPut(data.youtube_playlists);
+      if (data.notebooks) await db.notebooks.bulkPut(data.notebooks);
+      if (data.notebook_cells) await db.notebook_cells.bulkPut(data.notebook_cells);
     },
   );
 }

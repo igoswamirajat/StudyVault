@@ -1,9 +1,10 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { createFileRoute, useNavigate, Link, useRouter } from "@tanstack/react-router";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { getDb } from "@/db/schema";
 import { ClientOnly } from "@/components/common/ClientOnly";
-import { VideoViewer } from "@/components/study/VideoViewer";
+import { VideoViewer, type VideoController } from "@/components/study/VideoViewer";
 import { PdfViewer } from "@/components/study/PdfViewer";
 import { MarkdownViewer, HtmlViewer, ImageViewer } from "@/components/study/MarkdownViewer";
 import { NotesPanel } from "@/components/notes/NotesPanel";
@@ -39,6 +40,7 @@ import { buildResourceContext, gatherResourceMedia } from "@/services/aiContext"
 import { exportResourceSummaryPdf } from "@/services/exportService";
 import { Link as RouterLink } from "@tanstack/react-router";
 import { getPlaylist, setPlaylist } from "@/lib/playlist";
+import { youtubeWatchUrl } from "@/services/youtubeParse";
 import { PomodoroWidget } from "@/components/study/PomodoroWidget";
 import { AiDock } from "@/components/study/AiDock";
 import type { AssistantAction } from "@/services/aiService";
@@ -48,6 +50,7 @@ import { getOrCreateSummary, updateNote } from "@/services/notesService";
 import { aiGenerateSummary } from "@/services/aiService";
 
 export const Route = createFileRoute("/study/$resourceId")({
+  errorComponent: StudyRoomError,
   component: () => (
     <ClientOnly fallback={<div className="p-8 text-muted-foreground">Loading…</div>}>
       <StudyRoom />
@@ -55,21 +58,73 @@ export const Route = createFileRoute("/study/$resourceId")({
   ),
 });
 
+function StudyRoomError({ error, reset }: { error: Error; reset: () => void }) {
+  const router = useRouter();
+  return (
+    <div className="flex min-h-[calc(100vh-48px)] items-center justify-center bg-background px-4">
+      <div className="max-w-md border border-border bg-surface-1 p-6 text-center shadow-[6px_6px_0_var(--foreground)]">
+        <h1 className="text-xl font-semibold">Study Room recovered from an error</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Viewer state was reset safely. Retry or return to Library.
+        </p>
+        <details className="mt-3 text-left text-xs text-muted-foreground">
+          <summary className="cursor-pointer">Technical details</summary>
+          <pre className="mt-2 overflow-auto whitespace-pre-wrap">{error.message}</pre>
+        </details>
+        <div className="mt-5 flex justify-center gap-2">
+          <Button
+            onClick={() => {
+              router.invalidate();
+              reset();
+            }}
+          >
+            Try again
+          </Button>
+          <Button variant="outline" onClick={() => navigateToLibrary()}>
+            Library
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function navigateToLibrary() {
+  window.location.assign("/library");
+}
+
 function StudyRoom() {
   const { resourceId } = Route.useParams();
   const navigate = useNavigate();
   const { settings } = useSettings();
+  const reducedMotion = useReducedMotion();
   const [notesOpen, setNotesOpen] = useState(true);
   const [quizOpen, setQuizOpen] = useState(false);
   const [genFc, setGenFc] = useState(false);
+  const videoControllerRef = useRef<VideoController | null>(null);
   const { elapsedSec } = useStudySession(resourceId);
 
   const resource = useLiveQuery(() => getDb().resources.get(resourceId), [resourceId]);
   const allResources = useLiveQuery(() => getDb().resources.toArray(), []) ?? [];
   const progress = useLiveQuery(() => getDb().progress.get(resourceId), [resourceId]);
 
-  // Playlist takes precedence over day-based ordering when set.
-  const playlist = useMemo(() => getPlaylist(), [resourceId]);
+  // Session playlists take precedence. YouTube resources get a stable playlist
+  // automatically, so opening any lesson still exposes the full course queue.
+  const sessionPlaylist = useMemo(() => getPlaylist(), [resourceId]);
+  const youtubePlaylist = useMemo(() => {
+    if (!resource?.youtubePlaylistId) return null;
+    const items = allResources
+      .filter((item) => item.youtubePlaylistId === resource.youtubePlaylistId)
+      .sort((a, b) => (a.youtubeIndex ?? a.orderIndex) - (b.youtubeIndex ?? b.orderIndex));
+    return {
+      label: resource.folderPath ?? "YouTube playlist",
+      ids: items.map((item) => item.id),
+    };
+  }, [allResources, resource]);
+  const playlist = useMemo(() => {
+    if (sessionPlaylist?.ids.includes(resourceId)) return sessionPlaylist;
+    return youtubePlaylist ?? sessionPlaylist;
+  }, [resourceId, sessionPlaylist, youtubePlaylist]);
   const dayList = useMemo(() => {
     if (playlist && playlist.ids.includes(resourceId)) {
       const byId = new Map(allResources.map((r) => [r.id, r]));
@@ -113,6 +168,14 @@ function StudyRoom() {
       navigate({ to: "/study/$resourceId", params: { resourceId: next.id } });
     }
   }, [resourceId, settings.autoAdvance, next, navigate]);
+
+  const handleVideoEnded = useCallback(() => {
+    void markDone();
+  }, [markDone]);
+
+  const handleVideoController = useCallback((controller: VideoController | null) => {
+    videoControllerRef.current = controller;
+  }, []);
 
   const generateFlashcards = useCallback(async () => {
     if (!resource) return;
@@ -223,7 +286,11 @@ function StudyRoom() {
         case "generate_summary": {
           if (!resource) throw new Error("No resource open");
           const summary = await getOrCreateSummary(resource);
-          const context = await buildResourceContext(resource);
+          const context = await buildResourceContext(resource, {
+            maxChars: 10000,
+            includeSiblings: false,
+            includeUserSummary: false,
+          });
           const media = await gatherResourceMedia(resource);
           const result = await aiGenerateSummary(resource.name, context, media);
           await updateNote(summary.id, {
@@ -275,6 +342,10 @@ function StudyRoom() {
 
   async function handleDownload() {
     if (!resource) return;
+    if (resource.source === "youtube") {
+      toast.info("YouTube lessons play online and cannot be downloaded here.");
+      return;
+    }
     if (!isFsSupported()) {
       toast.error("Offline downloads need Chromium-based browser or Electron.");
       return;
@@ -354,11 +425,15 @@ function StudyRoom() {
               <Download className="size-4" />
             </Button>
             <a
-              href={driveOpenUrl(resource.driveId)}
+              href={
+                resource.source === "youtube"
+                  ? youtubeWatchUrl(resource.youtubeVideoId ?? "", resource.youtubePlaylistId)
+                  : driveOpenUrl(resource.driveId)
+              }
               target="_blank"
               rel="noreferrer"
               className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-              title="Open in Drive"
+              title={resource.source === "youtube" ? "Open in YouTube" : "Open in Drive"}
             >
               <ExternalLink className="size-4" />
             </a>
@@ -377,29 +452,45 @@ function StudyRoom() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1">
-          {resource.type === "video" ? (
-            <VideoViewer resource={resource} resumeEnabled={Boolean(settings.resumeVideos)} />
-          ) : resource.type === "pdf" ? (
-            <PdfViewer resource={resource} />
-          ) : resource.type === "markdown" ? (
-            <MarkdownViewer resource={resource} />
-          ) : resource.type === "html" ? (
-            <HtmlViewer resource={resource} />
-          ) : resource.type === "image" ? (
-            <ImageViewer resource={resource} />
-          ) : (
-            <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
-              <div>
-                <p className="mb-2">No viewer for this file type.</p>
-                <Button asChild variant="outline">
-                  <a href={driveOpenUrl(resource.driveId)} target="_blank" rel="noreferrer">
-                    Open in Drive
-                  </a>
-                </Button>
-              </div>
-            </div>
-          )}
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={resource.id}
+              initial={reducedMotion ? false : { opacity: 0, x: 12 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={reducedMotion ? undefined : { opacity: 0, x: -12 }}
+              transition={{ duration: reducedMotion ? 0 : 0.2, ease: [0.2, 0, 0, 1] }}
+              className="h-full"
+            >
+              {resource.type === "video" ? (
+                <VideoViewer
+                  resource={resource}
+                  resumeEnabled={Boolean(settings.resumeVideos)}
+                  onEnded={handleVideoEnded}
+                  onControllerReady={handleVideoController}
+                />
+              ) : resource.type === "pdf" ? (
+                <PdfViewer resource={resource} />
+              ) : resource.type === "markdown" ? (
+                <MarkdownViewer resource={resource} />
+              ) : resource.type === "html" ? (
+                <HtmlViewer resource={resource} />
+              ) : resource.type === "image" ? (
+                <ImageViewer resource={resource} />
+              ) : (
+                <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
+                  <div>
+                    <p className="mb-2">No viewer for this file type.</p>
+                    <Button asChild variant="outline">
+                      <a href={driveOpenUrl(resource.driveId)} target="_blank" rel="noreferrer">
+                        Open in Drive
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
         </div>
 
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-1 px-4 py-2">
@@ -447,6 +538,16 @@ function StudyRoom() {
             resource={resource}
             resourceId={resource.id}
             dayNumber={resource.dayAssignment}
+            getVideoTime={
+              resource.type === "video"
+                ? () => videoControllerRef.current?.getCurrentTime() ?? null
+                : undefined
+            }
+            onSeekVideo={
+              resource.type === "video"
+                ? (seconds) => videoControllerRef.current?.seekTo(seconds)
+                : undefined
+            }
           />
         </aside>
       )}

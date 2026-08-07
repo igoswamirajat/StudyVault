@@ -1,16 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { getDb, type Note } from "@/db/schema";
 import { ClientOnly } from "@/components/common/ClientOnly";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Search, Trash2, FileText, Download } from "lucide-react";
+import { Plus, Search, Trash2, FileText, Download, Eye, Pencil } from "lucide-react";
 import { createNote, updateNote, deleteNote } from "@/services/notesService";
 import { TipTapEditor } from "@/components/notes/TipTapEditor";
 import { formatDistanceToNow } from "date-fns";
 import { saveAs } from "file-saver";
 import { useRef } from "react";
+import { MarkdownRenderer } from "@/components/notes/MarkdownRenderer";
 
 export const Route = createFileRoute("/notes")({
   component: () => (
@@ -24,13 +25,30 @@ function NotesPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [savedAt, setSavedAt] = useState<number>(Date.now());
+  const [previewMode, setPreviewMode] = useState(false);
   const debRef = useRef<number | null>(null);
+  const pendingSaveRef = useRef<{ id: string; json: string; markdown: string } | null>(null);
 
-  const notes = useLiveQuery(() => getDb().notes.orderBy("updatedAt").reverse().toArray(), [], [] as Note[]);
+  useEffect(() => {
+    return () => {
+      if (debRef.current) window.clearTimeout(debRef.current);
+      const pending = pendingSaveRef.current;
+      if (pending)
+        void updateNote(pending.id, { content: pending.json, contentMarkdown: pending.markdown });
+    };
+  }, []);
+
+  const notes = useLiveQuery(
+    () => getDb().notes.orderBy("updatedAt").reverse().toArray(),
+    [],
+    [] as Note[],
+  );
   const filtered = useMemo(() => {
     if (!q.trim()) return notes;
     const s = q.toLowerCase();
-    return notes.filter((n) => n.title.toLowerCase().includes(s) || n.contentMarkdown.toLowerCase().includes(s));
+    return notes.filter(
+      (n) => n.title.toLowerCase().includes(s) || n.contentMarkdown.toLowerCase().includes(s),
+    );
   }, [notes, q]);
 
   const active = useMemo(() => notes.find((n) => n.id === activeId) ?? null, [notes, activeId]);
@@ -43,8 +61,10 @@ function NotesPage() {
   function handleChange(json: string, md: string) {
     if (!active) return;
     if (debRef.current) window.clearTimeout(debRef.current);
+    pendingSaveRef.current = { id: active.id, json, markdown: md };
     debRef.current = window.setTimeout(async () => {
       await updateNote(active.id, { content: json, contentMarkdown: md });
+      pendingSaveRef.current = null;
       setSavedAt(Date.now());
     }, 800);
   }
@@ -74,7 +94,12 @@ function NotesPage() {
           </div>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="h-8 pl-7 text-xs" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search…"
+              className="h-8 pl-7 text-xs"
+            />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-1.5">
@@ -117,6 +142,19 @@ function NotesPage() {
               <span className="mx-3 text-xs text-muted-foreground">
                 Saved {formatDistanceToNow(savedAt)} ago
               </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setPreviewMode((value) => !value)}
+                title="Toggle Markdown render"
+              >
+                {previewMode ? (
+                  <Pencil className="mr-1 size-3.5" />
+                ) : (
+                  <Eye className="mr-1 size-3.5" />
+                )}
+                {previewMode ? "Edit" : "Render"}
+              </Button>
               <Button size="sm" variant="ghost" onClick={exportNote}>
                 <Download className="mr-1 size-3.5" /> Export
               </Button>
@@ -125,7 +163,18 @@ function NotesPage() {
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
-              <TipTapEditor value={active.content} onChange={handleChange} maxHeightClassName="max-h-[65vh]" />
+              {previewMode ? (
+                <MarkdownRenderer
+                  markdown={active.contentMarkdown}
+                  className="min-h-[300px] px-2 py-1"
+                />
+              ) : (
+                <TipTapEditor
+                  value={active.content}
+                  onChange={handleChange}
+                  maxHeightClassName="max-h-[65vh]"
+                />
+              )}
             </div>
           </>
         ) : (

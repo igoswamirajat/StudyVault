@@ -24,9 +24,10 @@ export interface ChatTurn {
 export function describeAiError(e: unknown): Error {
   const raw = e instanceof Error ? e.message : String(e);
   const text = raw.toLowerCase();
+  const isGemini = text.includes("gemini");
 
   // Google has pulled gemini-2.5-pro off the free tier entirely (quota limit: 0).
-  if (text.includes("quota") && text.includes("limit: 0")) {
+  if (isGemini && text.includes("quota") && text.includes("limit: 0")) {
     return new Error(
       "Your free Gemini key has no quota for this model (Google set it to 0). " +
         "Go to Settings → AI and switch the Model to a free-tier one like " +
@@ -35,6 +36,11 @@ export function describeAiError(e: unknown): Error {
   }
   // "models/gemini-2.5-flash is no longer available to new users" etc.
   if (text.includes("no longer available")) {
+    if (!isGemini) {
+      return new Error(
+        "The configured AI model is no longer available. Check Provider, Endpoint URL, and Model in Settings → AI.",
+      );
+    }
     return new Error(
       "That Gemini model is no longer available to new free-tier keys. " +
         "Go to Settings → AI and switch the Model to gemini-3-flash-preview " +
@@ -43,12 +49,21 @@ export function describeAiError(e: unknown): Error {
   }
   // gemini-2.0-flash is fully shut down.
   if (text.includes("shut down") || text.includes("not found") || text.includes("not_found")) {
+    if (!isGemini) {
+      return new Error(
+        "The configured AI model or endpoint was not found. Check the exact model ID from the provider's /v1/models catalog.",
+      );
+    }
     return new Error(
       "That Gemini model is no longer available. Go to Settings → AI and switch " +
         "the Model to gemini-3-flash-preview or gemini-3.5-flash-lite.",
     );
   }
-  if (text.includes("api key not valid") || text.includes("api_key_invalid") || text.includes("api_key")) {
+  if (
+    text.includes("api key not valid") ||
+    text.includes("api_key_invalid") ||
+    text.includes("api_key")
+  ) {
     return new Error(
       "Your API key was rejected. Go to Settings → AI and double-check the key " +
         "(it should start with AIza... for Gemini or sk-... for OpenAI-compatible).",
@@ -71,9 +86,22 @@ export function describeAiError(e: unknown): Error {
       "No AI provider configured. Go to Settings → AI to add your endpoint and API key.",
     );
   }
+  if (text.includes("invalid json response")) {
+    return new Error(
+      "AI provider returned an invalid response. Check Provider, Endpoint URL, and Model in Settings → AI.",
+    );
+  }
   // Fall back to the provider's own message rather than swallowing it — the
   // user still gets a hint, just not a curated one.
   return new Error(raw || "AI request failed");
+}
+
+async function callAi<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    throw describeAiError(error);
+  }
 }
 
 async function getAiConfig() {
@@ -110,10 +138,28 @@ export interface AiMedia {
   videoDataUrl?: string;
 }
 
+export function supportsAiVision(provider: string, model: string): boolean {
+  if (provider === "gemini") return true;
+  return /gpt-4o|gpt-4\.1|vision|[-_]vl\b|llava|claude-3|claude-4|gemini/i.test(model);
+}
+
+function prepareMedia(provider: string, model: string, media?: AiMedia): AiMedia {
+  return media && supportsAiVision(provider, model) ? media : {};
+}
+
 /** One turn of a grounded chat (Doubt Buster / assistant). */
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
+}
+
+export function trimChatHistory(history: ChatTurn[], maxTurns = 8, maxChars = 7000): ChatTurn[] {
+  const turns = history.slice(-maxTurns).map((turn) => ({
+    role: turn.role,
+    content: turn.content.slice(0, 1800),
+  }));
+  while (turns.length > 1 && JSON.stringify(turns).length > maxChars) turns.shift();
+  return turns;
 }
 
 export async function aiGenerateQuiz(
@@ -124,19 +170,21 @@ export async function aiGenerateQuiz(
   media?: AiMedia,
 ) {
   const { provider, endpoint, apiKey, model } = await getAiConfig();
-  return generateQuizAI({
-    data: {
-      title,
-      contentMarkdown,
-      resourceType,
-      count,
-      provider,
-      endpoint,
-      apiKey,
-      model,
-      ...media,
-    },
-  });
+  return callAi(() =>
+    generateQuizAI({
+      data: {
+        title,
+        contentMarkdown,
+        resourceType,
+        count,
+        provider,
+        endpoint,
+        apiKey,
+        model,
+        ...prepareMedia(provider, model, media),
+      },
+    }),
+  );
 }
 
 export async function aiGenerateFlashcards(
@@ -147,27 +195,39 @@ export async function aiGenerateFlashcards(
   media?: AiMedia,
 ) {
   const { provider, endpoint, apiKey, model } = await getAiConfig();
-  return generateFlashcardsAI({
-    data: {
-      title,
-      contentMarkdown,
-      resourceType,
-      count,
-      provider,
-      endpoint,
-      apiKey,
-      model,
-      ...media,
-    },
-  });
+  return callAi(() =>
+    generateFlashcardsAI({
+      data: {
+        title,
+        contentMarkdown,
+        resourceType,
+        count,
+        provider,
+        endpoint,
+        apiKey,
+        model,
+        ...prepareMedia(provider, model, media),
+      },
+    }),
+  );
 }
 
 export async function aiGenerateSummary(title: string, content: string, media?: AiMedia) {
   const { provider, endpoint, apiKey, model } = await getAiConfig();
   try {
-    return await generateSummaryAI({
-      data: { title, content, provider, endpoint, apiKey, model, ...media },
-    });
+    return await callAi(() =>
+      generateSummaryAI({
+        data: {
+          title,
+          content,
+          provider,
+          endpoint,
+          apiKey,
+          model,
+          ...prepareMedia(provider, model, media),
+        },
+      }),
+    );
   } catch (e) {
     throw describeAiError(e);
   }
@@ -181,9 +241,20 @@ export async function aiGenerateAutoNote(
 ) {
   const { provider, endpoint, apiKey, model } = await getAiConfig();
   try {
-    return await generateAutoNoteAI({
-      data: { title, content, resourceType, provider, endpoint, apiKey, model, ...media },
-    });
+    return await callAi(() =>
+      generateAutoNoteAI({
+        data: {
+          title,
+          content,
+          resourceType,
+          provider,
+          endpoint,
+          apiKey,
+          model,
+          ...prepareMedia(provider, model, media),
+        },
+      }),
+    );
   } catch (e) {
     throw describeAiError(e);
   }
@@ -193,7 +264,9 @@ export async function aiSuggestSortOrder(
   resources: Array<{ id: string; name: string; type: string; folderPath?: string }>,
 ) {
   const { provider, endpoint, apiKey, model } = await getAiConfig();
-  return suggestSortOrderAI({ data: { resources, provider, endpoint, apiKey, model } });
+  return callAi(() =>
+    suggestSortOrderAI({ data: { resources, provider, endpoint, apiKey, model } }),
+  );
 }
 
 export async function aiAnswerDoubt(
@@ -204,9 +277,20 @@ export async function aiAnswerDoubt(
 ) {
   const { provider, endpoint, apiKey, model } = await getAiConfig();
   try {
-    return await answerDoubtAI({
-      data: { title, context, history, provider, endpoint, apiKey, model, ...media },
-    });
+    return await callAi(() =>
+      answerDoubtAI({
+        data: {
+          title,
+          context,
+          history,
+          provider,
+          endpoint,
+          apiKey,
+          model,
+          ...prepareMedia(provider, model, media),
+        },
+      }),
+    );
   } catch (e) {
     throw describeAiError(e);
   }
@@ -256,9 +340,11 @@ export async function aiStudyAssistant(
 ): Promise<{ reply: string; actions: AssistantAction[] }> {
   const { provider, endpoint, apiKey, model } = await getAiConfig();
   try {
-    return await studyAssistantAI({
-      data: { history, sessionContext, provider, endpoint, apiKey, model },
-    });
+    return await callAi(() =>
+      studyAssistantAI({
+        data: { history, sessionContext, provider, endpoint, apiKey, model },
+      }),
+    );
   } catch (e) {
     throw describeAiError(e);
   }

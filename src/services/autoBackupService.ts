@@ -4,11 +4,16 @@ const BACKUP_HANDLE_KEY = "backupDirectoryHandle";
 const BACKUP_FILENAME = "studyvault-backup.json";
 
 interface WindowWithFS extends Window {
-  showDirectoryPicker?: (opts?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
+  showDirectoryPicker?: (opts?: {
+    mode?: "read" | "readwrite";
+  }) => Promise<FileSystemDirectoryHandle>;
 }
 
 export function isBackupSupported(): boolean {
-  return typeof window !== "undefined" && typeof (window as WindowWithFS).showDirectoryPicker === "function";
+  return (
+    typeof window !== "undefined" &&
+    typeof (window as WindowWithFS).showDirectoryPicker === "function"
+  );
 }
 
 export async function pickBackupFolder(): Promise<FileSystemDirectoryHandle | null> {
@@ -60,6 +65,9 @@ export async function performAutoBackup(): Promise<{ success: boolean; error?: s
     quizzes: await db.quizzes.toArray(),
     flashcards: await db.flashcards.toArray(),
     folders: await db.folders.toArray(),
+    youtube_playlists: await db.youtube_playlists.toArray(),
+    notebooks: await db.notebooks.toArray(),
+    notebook_cells: await db.notebook_cells.toArray(),
     settings: (await db.settings.toArray()).filter(
       (s) => s.key !== BACKUP_HANDLE_KEY && s.key !== "offlineDirectoryHandle",
     ),
@@ -111,12 +119,39 @@ export async function importFromBackupFolder(): Promise<{ success: boolean; erro
 
     await db.transaction(
       "rw",
-      [db.resources, db.days, db.notes, db.progress, db.study_sessions, db.video_progress, db.pdf_annotations, db.bookmarks, db.quizzes, db.flashcards, db.folders, db.settings],
+      [
+        db.resources,
+        db.days,
+        db.notes,
+        db.progress,
+        db.study_sessions,
+        db.video_progress,
+        db.pdf_annotations,
+        db.bookmarks,
+        db.quizzes,
+        db.flashcards,
+        db.folders,
+        db.settings,
+        db.youtube_playlists,
+        db.notebooks,
+        db.notebook_cells,
+      ],
       async () => {
         await Promise.all([
-          db.resources.clear(), db.days.clear(), db.notes.clear(), db.progress.clear(),
-          db.study_sessions.clear(), db.video_progress.clear(), db.pdf_annotations.clear(),
-          db.bookmarks.clear(), db.quizzes.clear(), db.flashcards.clear(), db.folders.clear(),
+          db.resources.clear(),
+          db.days.clear(),
+          db.notes.clear(),
+          db.progress.clear(),
+          db.study_sessions.clear(),
+          db.video_progress.clear(),
+          db.pdf_annotations.clear(),
+          db.bookmarks.clear(),
+          db.quizzes.clear(),
+          db.flashcards.clear(),
+          db.folders.clear(),
+          db.youtube_playlists.clear(),
+          db.notebooks.clear(),
+          db.notebook_cells.clear(),
         ]);
         if (data.resources) await db.resources.bulkPut(data.resources);
         if (data.days) await db.days.bulkPut(data.days);
@@ -130,6 +165,9 @@ export async function importFromBackupFolder(): Promise<{ success: boolean; erro
         if (data.flashcards) await db.flashcards.bulkPut(data.flashcards);
         if (data.folders) await db.folders.bulkPut(data.folders);
         if (data.settings) await db.settings.bulkPut(data.settings);
+        if (data.youtube_playlists) await db.youtube_playlists.bulkPut(data.youtube_playlists);
+        if (data.notebooks) await db.notebooks.bulkPut(data.notebooks);
+        if (data.notebook_cells) await db.notebook_cells.bulkPut(data.notebook_cells);
       },
     );
     await db.settings.put({ key: "lastBackupAt", value: Date.now() });

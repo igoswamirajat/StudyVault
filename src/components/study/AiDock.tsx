@@ -13,6 +13,7 @@ import {
   aiStudyAssistant,
   isAiConfigured,
   isMutatingAction,
+  trimChatHistory,
   type AssistantAction,
   type ChatTurn,
 } from "@/services/aiService";
@@ -54,6 +55,7 @@ export function AiDock({ resource, buildSessionContext, runAction }: AiDockProps
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const doubtContextRef = useRef<{ resourceId: string; value: string; at: number } | null>(null);
 
   const drag = useDraggable({
     storageKey: "studyvault:ai-dock-pos",
@@ -87,18 +89,31 @@ export function AiDock({ resource, buildSessionContext, runAction }: AiDockProps
 
     try {
       if (tab === "doubt") {
-        const context = await buildResourceContext(resource);
+        let context = doubtContextRef.current?.value;
+        const cache = doubtContextRef.current;
+        if (
+          !context ||
+          !cache ||
+          cache.resourceId !== resource.id ||
+          Date.now() - cache.at > 30_000
+        ) {
+          context = await buildResourceContext(resource, {
+            maxChars: 7000,
+            includeSiblings: false,
+          });
+          doubtContextRef.current = { resourceId: resource.id, value: context, at: Date.now() };
+        }
         const media = await gatherResourceMedia(resource);
         const { answer } = await aiAnswerDoubt(
           resource.name,
           context,
-          nextHistory.map(({ role, content }) => ({ role, content })),
+          trimChatHistory(nextHistory.map(({ role, content }) => ({ role, content }))),
           media,
         );
         setMessages([...nextHistory, { role: "assistant", content: answer }]);
       } else {
         const { reply, actions } = await aiStudyAssistant(
-          nextHistory.map(({ role, content }) => ({ role, content })),
+          trimChatHistory(nextHistory.map(({ role, content }) => ({ role, content }))),
           buildSessionContext(),
         );
         // Safe actions (navigation/generation) run immediately; mutating ones

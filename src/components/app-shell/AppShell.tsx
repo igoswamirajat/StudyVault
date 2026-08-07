@@ -14,6 +14,7 @@ import {
   Network,
   Sun,
   Trash2,
+  NotebookPen,
 } from "lucide-react";
 
 import { motion, AnimatePresence } from "framer-motion";
@@ -36,12 +37,12 @@ import { FocusBox } from "@/components/study/FocusBox";
 import { FileSelectionProvider } from "@/hooks/useFileSelection";
 import { SelectionToolbar } from "@/components/files/SelectionToolbar";
 
-
 const PRIMARY_NAV = [
   { to: "/library", label: "Library", icon: LibraryIcon },
   { to: "/organizer", label: "Organizer", icon: CalendarDays },
   { to: "/study", label: "Study Room", icon: Play },
   { to: "/notes", label: "Notes", icon: NotebookText },
+  { to: "/notebooks", label: "Notebooks", icon: NotebookPen },
 ] as const;
 
 const SECONDARY_NAV = [
@@ -52,7 +53,6 @@ const SECONDARY_NAV = [
   { to: "/trash", label: "Trash", icon: Trash2 },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
-
 
 const NAV_ITEMS = [...PRIMARY_NAV, ...SECONDARY_NAV] as const;
 
@@ -66,9 +66,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function AppShellInner({ children }: { children: ReactNode }) {
-
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isRouterLoading = useRouterState({ select: (s) => Boolean(s.isLoading || s.isTransitioning) });
+  const isRouterLoading = useRouterState({
+    select: (s) => Boolean(s.isLoading || s.isTransitioning),
+  });
   const navigate = useNavigate();
   const isOnboarding = pathname.startsWith("/onboarding");
   const isWorkspacePicker = pathname.startsWith("/workspaces");
@@ -111,10 +112,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
     root.style.setProperty("--ring", accent);
     root.style.setProperty("--sidebar-primary", accent);
     root.style.setProperty("--sidebar-ring", accent);
-    root.style.setProperty(
-      "--gradient-accent",
-      `linear-gradient(135deg, ${accent}, ${accent})`,
-    );
+    root.style.setProperty("--gradient-accent", `linear-gradient(135deg, ${accent}, ${accent})`);
   }, [settings.accentColor]);
 
   // Routing decision:
@@ -179,7 +177,16 @@ function AppShellInner({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [loaded, settings.appInitialized, settings.driveId, isOnboarding, isWorkspacePicker, pathname, navigate, activeWorkspaceId]);
+  }, [
+    loaded,
+    settings.appInitialized,
+    settings.driveId,
+    isOnboarding,
+    isWorkspacePicker,
+    pathname,
+    navigate,
+    activeWorkspaceId,
+  ]);
 
   // Hotkey: [ toggles mobile navigation
   useEffect(() => {
@@ -235,14 +242,14 @@ function AppShellInner({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const activeNavItem = NAV_ITEMS.find(
-    (i) => pathname === i.to || pathname.startsWith(i.to + "/"),
-  );
+  const activeNavItem = NAV_ITEMS.find((i) => pathname === i.to || pathname.startsWith(i.to + "/"));
 
   function switchWorkspace() {
     try {
       resetDbCache();
-    } catch { /* noop */ }
+    } catch {
+      /* noop */
+    }
     clearActiveWorkspace();
     window.location.assign("/workspaces");
   }
@@ -293,7 +300,10 @@ function AppShellInner({ children }: { children: ReactNode }) {
               className="flex shrink-0 items-center gap-3"
               onClick={() => setMobileNavOpen(false)}
             >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center bg-[#111]" style={{ borderRadius: "4px" }}>
+              <div
+                className="flex h-9 w-9 shrink-0 items-center justify-center bg-[#111]"
+                style={{ borderRadius: "4px" }}
+              >
                 <div className="h-[18px] w-[18px] bg-[#6C63FF]" style={{ borderRadius: "2px" }} />
               </div>
               <span
@@ -304,16 +314,17 @@ function AppShellInner({ children }: { children: ReactNode }) {
               </span>
             </Link>
             <div className="hidden h-5 shrink-0 bg-[#e5e5e5] sm:block" style={{ width: "1.5px" }} />
-            <div className="hidden min-w-0 items-center gap-1.5 text-[11px] font-bold uppercase sm:flex" style={{ letterSpacing: "0.06em" }}>
+            <div
+              className="hidden min-w-0 items-center gap-1.5 text-[11px] font-bold uppercase sm:flex"
+              style={{ letterSpacing: "0.06em" }}
+            >
               {wsName && (
                 <>
                   <span className="truncate text-[#888]">{wsName}</span>
                   <span className="text-[#888]">›</span>
                 </>
               )}
-              <span className="truncate text-[#111]">
-                {activeNavItem?.label ?? ""}
-              </span>
+              <span className="truncate text-[#111]">{activeNavItem?.label ?? ""}</span>
             </div>
           </div>
 
@@ -380,13 +391,13 @@ function AppShellInner({ children }: { children: ReactNode }) {
                 width: `${pillPos.width}px`,
                 borderRadius: "2px",
                 opacity: pillPos.opacity,
-                transition: "left 0.28s cubic-bezier(0.16, 1, 0.3, 1), width 0.28s cubic-bezier(0.16, 1, 0.3, 1)",
+                transition:
+                  "left 0.28s cubic-bezier(0.16, 1, 0.3, 1), width 0.28s cubic-bezier(0.16, 1, 0.3, 1)",
               }}
             />
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
-              const active =
-                pathname === item.to || pathname.startsWith(item.to + "/");
+              const active = pathname === item.to || pathname.startsWith(item.to + "/");
               return (
                 <Link
                   key={item.to}
@@ -413,10 +424,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
                     }
                   }}
                 >
-                  <Icon
-                    className="size-4 shrink-0"
-                    strokeWidth={active ? 2.5 : 2}
-                  />
+                  <Icon className="size-4 shrink-0" strokeWidth={active ? 2.5 : 2} />
                   <span className="whitespace-nowrap">{item.label}</span>
                 </Link>
               );
@@ -439,8 +447,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
           >
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
-              const active =
-                pathname === item.to || pathname.startsWith(item.to + "/");
+              const active = pathname === item.to || pathname.startsWith(item.to + "/");
               return (
                 <Link
                   key={item.to}
@@ -517,7 +524,10 @@ function AvailabilityAndStatus({ online }: { online: boolean }) {
   const [filter, setFilter] = useAvailabilityFilter();
   return (
     <div className="hidden shrink-0 items-center gap-3 sm:flex">
-      <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-[#888]" style={{ letterSpacing: "0.06em" }}>
+      <label
+        className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-[#888]"
+        style={{ letterSpacing: "0.06em" }}
+      >
         <span className="hidden lg:inline">Show</span>
         <select
           value={filter}
@@ -531,7 +541,10 @@ function AvailabilityAndStatus({ online }: { online: boolean }) {
           <option value="offline">Offline only</option>
         </select>
       </label>
-      <div className="flex items-center gap-2 text-[10px] font-bold uppercase text-[#888]" style={{ letterSpacing: "0.06em" }}>
+      <div
+        className="flex items-center gap-2 text-[10px] font-bold uppercase text-[#888]"
+        style={{ letterSpacing: "0.06em" }}
+      >
         <span
           className="size-2 shrink-0 rounded-full"
           style={{

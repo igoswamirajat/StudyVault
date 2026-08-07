@@ -1,14 +1,13 @@
 import Dexie, { type Table } from "dexie";
 import { dbNameForActiveWorkspace } from "@/services/workspaceService";
 
-
 export type ResourceType = "video" | "pdf" | "markdown" | "html" | "image" | "other";
 
 export type RevisionFlag = "important" | "revision" | "difficult" | "done";
 
 export type ResourceStatus = "active" | "trashed";
 
-export type ResourceSource = "drive" | "telegram" | "local";
+export type ResourceSource = "drive" | "telegram" | "local" | "youtube";
 
 export interface Resource {
   id: string;
@@ -42,8 +41,12 @@ export interface Resource {
   source?: ResourceSource;
   telegramFileId?: string | null;
   telegramMessageId?: number | null;
+  youtubeVideoId?: string | null;
+  youtubePlaylistId?: string | null;
+  youtubeIndex?: number | null;
+  youtubeChannelTitle?: string | null;
+  youtubePublishedAt?: string | null;
 }
-
 
 export interface Day {
   number: number;
@@ -144,7 +147,7 @@ export interface FolderRow {
   name: string;
   parentPath: string;
   createdAt: number;
-  source: "drive" | "user" | "telegram";
+  source: "drive" | "user" | "telegram" | "youtube";
   // v7
   color?: string | null;
   icon?: string | null;
@@ -173,6 +176,44 @@ export interface Setting {
   value: unknown;
 }
 
+export interface YoutubePlaylist {
+  id: string;
+  playlistId: string;
+  title: string;
+  url: string;
+  channelTitle: string | null;
+  mode: "embed" | "expanded";
+  videoCount: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type NotebookCellType = "markdown" | "code";
+export type NotebookKernel = "browser" | "jupyter" | "kaggle" | "colab";
+export type NotebookCellStatus = "idle" | "running" | "success" | "error";
+
+export interface Notebook {
+  id: string;
+  title: string;
+  resourceId: string | null;
+  kernel: NotebookKernel;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface NotebookCell {
+  id: string;
+  notebookId: string;
+  type: NotebookCellType;
+  orderIndex: number;
+  source: string;
+  language: string;
+  output: string;
+  status: NotebookCellStatus;
+  executionCount: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export class StudyVaultDB extends Dexie {
   resources!: Table<Resource, string>;
@@ -188,6 +229,9 @@ export class StudyVaultDB extends Dexie {
   folders!: Table<FolderRow, string>;
   file_operations_log!: Table<FileOperationLog, string>;
   settings!: Table<Setting, string>;
+  youtube_playlists!: Table<YoutubePlaylist, string>;
+  notebooks!: Table<Notebook, string>;
+  notebook_cells!: Table<NotebookCell, string>;
 
   constructor(dbName: string) {
     super(dbName);
@@ -204,7 +248,8 @@ export class StudyVaultDB extends Dexie {
       settings: "key",
     });
     this.version(2).stores({
-      resources: "id, type, dayAssignment, orderIndex, isDownloaded, lastOpenedAt, name, folderPath, parentFolderId",
+      resources:
+        "id, type, dayAssignment, orderIndex, isDownloaded, lastOpenedAt, name, folderPath, parentFolderId",
     });
     this.version(3).stores({
       notes: "id, resourceId, dayNumber, isGlobal, isSummary, updatedAt, *tags",
@@ -216,34 +261,55 @@ export class StudyVaultDB extends Dexie {
       folders: "path, parentPath, name, createdAt, source",
     });
     this.version(6).stores({
-      resources: "id, type, dayAssignment, orderIndex, isDownloaded, lastOpenedAt, name, folderPath, parentFolderId, revisionFlag",
-    });
-    this.version(7).stores({
       resources:
-        "id, type, dayAssignment, orderIndex, isDownloaded, lastOpenedAt, name, folderPath, parentFolderId, revisionFlag, status, trashedAt, *tags",
+        "id, type, dayAssignment, orderIndex, isDownloaded, lastOpenedAt, name, folderPath, parentFolderId, revisionFlag",
+    });
+    this.version(7)
+      .stores({
+        resources:
+          "id, type, dayAssignment, orderIndex, isDownloaded, lastOpenedAt, name, folderPath, parentFolderId, revisionFlag, status, trashedAt, *tags",
+        folders: "path, parentPath, name, createdAt, source, color",
+        file_operations_log: "id, type, timestamp",
+      })
+      .upgrade(async (tx) => {
+        // Backfill status='active' on existing rows so trash filters work.
+        await tx
+          .table("resources")
+          .toCollection()
+          .modify((r: Resource) => {
+            if (!r.status) r.status = "active";
+            if (!r.tags) r.tags = [];
+          });
+      });
+    this.version(8)
+      .stores({
+        resources:
+          "id, type, dayAssignment, orderIndex, isDownloaded, lastOpenedAt, name, folderPath, parentFolderId, revisionFlag, status, trashedAt, *tags, source",
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table("resources")
+          .toCollection()
+          .modify((r: Resource) => {
+            if (!r.source) {
+              r.source = r.driveId ? "drive" : "local";
+            }
+          });
+      });
+    this.version(9).stores({
+      resources:
+        "id, type, dayAssignment, orderIndex, isDownloaded, lastOpenedAt, name, folderPath, parentFolderId, revisionFlag, status, trashedAt, *tags, source, youtubePlaylistId, youtubeVideoId",
       folders: "path, parentPath, name, createdAt, source, color",
-      file_operations_log: "id, type, timestamp",
-    }).upgrade(async (tx) => {
-      // Backfill status='active' on existing rows so trash filters work.
-      await tx.table("resources").toCollection().modify((r: Resource) => {
-        if (!r.status) r.status = "active";
-        if (!r.tags) r.tags = [];
-      });
     });
-    this.version(8).stores({
-      resources:
-        "id, type, dayAssignment, orderIndex, isDownloaded, lastOpenedAt, name, folderPath, parentFolderId, revisionFlag, status, trashedAt, *tags, source",
-    }).upgrade(async (tx) => {
-      await tx.table("resources").toCollection().modify((r: Resource) => {
-        if (!r.source) {
-          r.source = r.driveId ? "drive" : "local";
-        }
-      });
+    this.version(10).stores({
+      youtube_playlists: "id, playlistId, mode, createdAt, updatedAt",
+    });
+    this.version(11).stores({
+      notebooks: "id, resourceId, kernel, createdAt, updatedAt",
+      notebook_cells: "id, notebookId, orderIndex, type, updatedAt",
     });
   }
 }
-
-
 
 let _db: StudyVaultDB | null = null;
 let _dbName: string | null = null;
@@ -254,7 +320,13 @@ export function getDb(): StudyVaultDB {
   // Lazy require to dodge SSR/circular import paths.
   const name = dbNameForActiveWorkspace();
   if (!_db || _dbName !== name) {
-    if (_db) { try { _db.close(); } catch { /* noop */ } }
+    if (_db) {
+      try {
+        _db.close();
+      } catch {
+        /* noop */
+      }
+    }
     _db = new StudyVaultDB(name);
     _dbName = name;
   }
@@ -262,7 +334,13 @@ export function getDb(): StudyVaultDB {
 }
 
 export function resetDbCache() {
-  if (_db) { try { _db.close(); } catch { /* noop */ } }
+  if (_db) {
+    try {
+      _db.close();
+    } catch {
+      /* noop */
+    }
+  }
   _db = null;
   _dbName = null;
 }
@@ -276,6 +354,7 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   offlineFolderGranted: false,
   playbackSpeed: 1,
   resumeVideos: true,
+  youtubeApiKey: null,
   showTimerInSession: true,
   quizTimerEnabled: false,
   driveId: null,

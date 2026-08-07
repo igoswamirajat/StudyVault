@@ -1,14 +1,11 @@
 import { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
-import "highlight.js/styles/github-dark.css";
 import type { Resource } from "@/db/schema";
-import { readLocalResource } from "@/services/fileSystemService";
+import { readTextResource } from "@/services/fileSystemService";
 import { driveOpenUrl } from "@/services/driveService";
 import { Button } from "@/components/ui/button";
 import { ExternalLink } from "lucide-react";
 import { HighlightCapture } from "./HighlightCapture";
+import { MarkdownRenderer } from "@/components/notes/MarkdownRenderer";
 
 function DrivePreviewFrame({ resource, hint }: { resource: Resource; hint: string }) {
   return (
@@ -39,17 +36,16 @@ export function MarkdownViewer({ resource }: { resource: Resource }) {
     setContent(null);
     setNeedsRemote(false);
     (async () => {
-      if (!resource.isDownloaded) {
+      if (!resource.isDownloaded && !resource.telegramFileId && resource.source !== "local") {
         if (active) setNeedsRemote(true);
         return;
       }
       try {
-        const file = await readLocalResource(resource.id);
-        if (!file) {
+        const text = await readTextResource(resource.id);
+        if (text == null) {
           if (active) setNeedsRemote(true);
           return;
         }
-        const text = await file.text();
         if (active) setContent(text);
       } catch {
         if (active) setNeedsRemote(true);
@@ -58,20 +54,21 @@ export function MarkdownViewer({ resource }: { resource: Resource }) {
     return () => {
       active = false;
     };
-  }, [resource.id, resource.isDownloaded]);
+  }, [resource.id, resource.isDownloaded, resource.source, resource.telegramFileId]);
 
   if (needsRemote) {
-    return <DrivePreviewFrame resource={resource} hint="Streaming from Drive. Download for rich rendering." />;
+    return (
+      <DrivePreviewFrame
+        resource={resource}
+        hint="Streaming from Drive. Download for rich rendering."
+      />
+    );
   }
   if (content == null) return <div className="p-8 text-muted-foreground">Loading…</div>;
 
   return (
     <HighlightCapture resourceId={resource.id} className="overflow-y-auto bg-surface-1 p-8">
-      <article className="prose prose-invert mx-auto max-w-3xl prose-headings:font-semibold prose-pre:bg-surface-2">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-          {content}
-        </ReactMarkdown>
-      </article>
+      <MarkdownRenderer markdown={content} className="mx-auto max-w-3xl" />
     </HighlightCapture>
   );
 }
@@ -85,17 +82,16 @@ export function HtmlViewer({ resource }: { resource: Resource }) {
     setContent(null);
     setNeedsRemote(false);
     (async () => {
-      if (!resource.isDownloaded) {
+      if (!resource.isDownloaded && !resource.telegramFileId && resource.source !== "local") {
         if (active) setNeedsRemote(true);
         return;
       }
       try {
-        const file = await readLocalResource(resource.id);
-        if (!file) {
+        const text = await readTextResource(resource.id);
+        if (text == null) {
           if (active) setNeedsRemote(true);
           return;
         }
-        const text = await file.text();
         if (active) setContent(text);
       } catch {
         if (active) setNeedsRemote(true);
@@ -104,13 +100,20 @@ export function HtmlViewer({ resource }: { resource: Resource }) {
     return () => {
       active = false;
     };
-  }, [resource.id, resource.isDownloaded]);
+  }, [resource.id, resource.isDownloaded, resource.source, resource.telegramFileId]);
 
   if (needsRemote) {
     return <DrivePreviewFrame resource={resource} hint="Streaming from Drive." />;
   }
   if (content == null) return <div className="p-8 text-muted-foreground">Loading…</div>;
-  return <iframe srcDoc={content} sandbox="allow-same-origin" className="size-full border-0" title={resource.name} />;
+  return (
+    <iframe
+      srcDoc={content}
+      sandbox="allow-same-origin"
+      className="size-full border-0"
+      title={resource.name}
+    />
+  );
 }
 
 export function ImageViewer({ resource }: { resource: Resource }) {

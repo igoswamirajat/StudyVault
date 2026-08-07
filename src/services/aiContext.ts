@@ -12,12 +12,26 @@ import type { AiMedia } from "@/services/aiService";
  * This is the shared grounding used by summaries, auto-notes, flashcards,
  * quizzes, the Doubt Buster, and the in-session assistant.
  */
-export async function buildResourceContext(resource: Resource): Promise<string> {
+export interface ResourceContextOptions {
+  maxChars?: number;
+  includeSiblings?: boolean;
+  includeUserSummary?: boolean;
+}
+
+export async function buildResourceContext(
+  resource: Resource,
+  options: ResourceContextOptions = {},
+): Promise<string> {
   const db = getDb();
+  const maxChars = options.maxChars ?? 10000;
   const lines: string[] = [];
 
   lines.push(`Title: ${resource.name}`);
   lines.push(`Type: ${resource.type}`);
+  const source =
+    resource.source ??
+    (resource.telegramFileId ? "telegram" : resource.driveId ? "drive" : "local");
+  lines.push(`Source: ${source}`);
 
   // Folder / "week" breadcrumb.
   if (resource.folderPath) {
@@ -32,21 +46,32 @@ export async function buildResourceContext(resource: Resource): Promise<string> 
   if (resource.tags && resource.tags.length) {
     lines.push(`Tags: ${resource.tags.join(", ")}`);
   }
+  if (resource.transcriptText?.trim()) {
+    lines.push(
+      `\nTranscript or source description:\n"""\n${resource.transcriptText.trim().slice(0, 5000)}\n"""`,
+    );
+  } else if (resource.source === "youtube") {
+    lines.push(
+      "\nContent limitation: YouTube playback is embedded and no transcript was provided. Do not claim to know details that are not present in notes or context.",
+    );
+  }
 
   // Sibling resources in the same folder (or day) — situates the topic.
   try {
-    const all = await db.resources.toArray();
-    const active = all.filter((r) => (r.status ?? "active") === "active" && r.id !== resource.id);
-    const siblings = resource.folderPath
-      ? active.filter((r) => r.folderPath === resource.folderPath)
-      : active.filter((r) => r.dayAssignment === resource.dayAssignment);
-    if (siblings.length) {
-      const names = siblings
-        .sort((a, b) => a.orderIndex - b.orderIndex)
-        .slice(0, 20)
-        .map((r) => `  - ${r.name} (${r.type})`);
-      lines.push(`\nOther material in the same ${resource.folderPath ? "folder" : "unit"}:`);
-      lines.push(...names);
+    if (options.includeSiblings !== false) {
+      const all = await db.resources.toArray();
+      const active = all.filter((r) => (r.status ?? "active") === "active" && r.id !== resource.id);
+      const siblings = resource.folderPath
+        ? active.filter((r) => r.folderPath === resource.folderPath)
+        : active.filter((r) => r.dayAssignment === resource.dayAssignment);
+      if (siblings.length) {
+        const names = siblings
+          .sort((a, b) => a.orderIndex - b.orderIndex)
+          .slice(0, 20)
+          .map((r) => `  - ${r.name} (${r.type})`);
+        lines.push(`\nOther material in the same ${resource.folderPath ? "folder" : "unit"}:`);
+        lines.push(...names);
+      }
     }
   } catch {
     /* best-effort */
@@ -54,10 +79,12 @@ export async function buildResourceContext(resource: Resource): Promise<string> 
 
   // The user's own summary note — their distilled understanding.
   try {
-    const summary = await getOrCreateSummary(resource);
-    const md = summary.contentMarkdown?.trim();
-    if (md && md.length > 0) {
-      lines.push(`\nUser's summary note:\n"""\n${md.slice(0, 6000)}\n"""`);
+    if (options.includeUserSummary !== false) {
+      const summary = await getOrCreateSummary(resource);
+      const md = summary.contentMarkdown?.trim();
+      if (md && md.length > 0) {
+        lines.push(`\nUser's summary note:\n"""\n${md.slice(0, 6000)}\n"""`);
+      }
     }
   } catch {
     /* best-effort */
@@ -96,13 +123,12 @@ export async function buildResourceContext(resource: Resource): Promise<string> 
     /* best-effort */
   }
 
-  return lines.join("\n");
+  return lines.join("\n").slice(0, maxChars);
 }
 
 /**
- * Samples still frames from a video ONLY when its bytes are already available
- * locally (a video the user previously downloaded, or a Telegram file). This
- * never triggers a download and never hands the server a remote URL to fetch.
+ * Samples still frames from local/offline files and Telegram media. This never
+ * hands a remote Drive or YouTube URL to the AI provider.
  *
  * For Drive-streamed videos we deliberately return no media: their bytes live
  * behind Google's player and their thumbnail URLs are private (fetching them
@@ -112,28 +138,45 @@ export async function buildResourceContext(resource: Resource): Promise<string> 
  * Best-effort: any failure (unreadable file, decode error) resolves to no
  * media rather than throwing, so AI generation still proceeds text-only.
  */
-export async function gatherResourceMedia(resource: Resource, frameCount = 6): Promise<AiMedia> {
+const mediaCache = new Map<string, AiMedia>();
+
+export async function gatherResourceMedia(resource: Resource, frameCount = 4): Promise<AiMedia> {
   if (resource.type !== "video") return {};
-  // Only frame-sample bytes we already hold locally. No download is ever
-  // initiated here — getPlayableVideoUrl returns null for Drive-only videos.
+  // YouTube iframe bytes are cross-origin and cannot be sampled by StudyVault.
+  if (resource.source === "youtube") return {};
+  const cacheKey = `${resource.id}:${frameCount}:${resource.isDownloaded}:${Boolean(resource.telegramFileId)}`;
+  const cached = mediaCache.get(cacheKey);
+  if (cached) return cached;
+  // Drive-only and YouTube resources remain text-only. Telegram media may be
+  // fetched through its existing service, then cached for follow-up requests.
   if (!resource.isDownloaded && !resource.telegramFileId) {
     // Drive-streamed: try to inline the poster thumbnail CLIENT-side (the
     // browser's Google session can read it), so the server never fetches a
     // private URL. Weak signal, but better than nothing for vision models.
     const poster = await inlineThumbnail(resource);
-    return poster ? { images: [poster] } : {};
+    const media = poster ? { images: [poster] } : {};
+    mediaCache.set(cacheKey, media);
+    return media;
   }
   try {
     const url = await getPlayableVideoUrl(resource.id);
-    if (!url) return {};
+    if (!url) {
+      const media = {};
+      mediaCache.set(cacheKey, media);
+      return media;
+    }
     try {
-      const images = await sampleFrames(url, frameCount);
-      return images.length ? { images } : {};
+      const images = await sampleFrames(url, frameCount, 512);
+      const media = images.length ? { images } : {};
+      mediaCache.set(cacheKey, media);
+      return media;
     } finally {
       if (url.startsWith("blob:")) URL.revokeObjectURL(url);
     }
   } catch {
-    return {};
+    const media = {};
+    mediaCache.set(cacheKey, media);
+    return media;
   }
 }
 

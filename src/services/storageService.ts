@@ -46,26 +46,53 @@ export async function resetAllData(): Promise<void> {
     db.folders.clear(),
     db.file_operations_log.clear(),
     db.settings.clear(),
+    db.youtube_playlists.clear(),
+    db.notebooks.clear(),
+    db.notebook_cells.clear(),
   ]);
 
   notifySettingsChanged();
 }
 
-/** Reset Drive-scan cache for the active workspace only: resources, folders,
- * folder-derived progress + drive connection settings. Keeps notes/flashcards. */
+/** Reset only Drive resources. Other sources remain available in this workspace. */
 export async function resetDriveCache(): Promise<void> {
   const db = getDb();
-  await Promise.all([
-    db.resources.clear(),
-    db.folders.clear(),
-    db.days.clear(),
-    db.progress.clear(),
-    db.video_progress.clear(),
-    db.pdf_annotations.clear(),
-    db.bookmarks.clear(),
-  ]);
+  const resources = await db.resources.toArray();
+  const driveIds = resources
+    .filter((resource) => (resource.source ?? (resource.driveId ? "drive" : "local")) === "drive")
+    .map((resource) => resource.id);
+  const driveIdSet = new Set(driveIds);
+  const driveFolders = (await db.folders.toArray()).filter((folder) => folder.source === "drive");
+  await db.transaction(
+    "rw",
+    db.resources,
+    db.folders,
+    db.days,
+    db.progress,
+    db.video_progress,
+    db.pdf_annotations,
+    db.bookmarks,
+    async () => {
+      for (const id of driveIds) {
+        await db.resources.delete(id);
+        await db.progress.delete(id);
+        await db.video_progress.delete(id);
+        await db.pdf_annotations.where("resourceId").equals(id).delete();
+        await db.bookmarks.where("resourceId").equals(id).delete();
+      }
+      for (const folder of driveFolders) await db.folders.delete(folder.path);
+      for (const day of await db.days.toArray()) {
+        const stillUsed = resources.some(
+          (resource) => resource.dayAssignment === day.number && !driveIdSet.has(resource.id),
+        );
+        if (!stillUsed) await db.days.delete(day.number);
+      }
+    },
+  );
   await db.settings.delete("driveId");
   await db.settings.delete("driveFolderUrl");
-  await db.settings.delete("appInitialized");
+  if (resources.every((resource) => driveIdSet.has(resource.id))) {
+    await db.settings.delete("appInitialized");
+  }
   notifySettingsChanged();
 }

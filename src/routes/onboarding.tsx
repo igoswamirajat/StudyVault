@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   Loader2,
   Sparkles,
@@ -28,6 +28,7 @@ import { checkTelegramHealth, scanTelegramChat, ingestTelegramFiles, sendTelegra
 import { looksLikeChatId } from "@/services/telegramParse";
 import { useSettings } from "@/hooks/useSettings";
 import { ClientOnly } from "@/components/common/ClientOnly";
+import { YoutubePlaylistImport } from "@/components/import/YoutubePlaylistImport";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/onboarding")({
@@ -66,6 +67,7 @@ function Onboarding() {
     other: 0,
   });
   const [goal, setGoal] = useState(60);
+  const [playlistOnly, setPlaylistOnly] = useState(false);
   const [tgApiId, setTgApiId] = useState("");
   const [tgApiHash, setTgApiHash] = useState("");
   const [tgPhone, setTgPhone] = useState("");
@@ -74,6 +76,7 @@ function Onboarding() {
   const [tgPendingSession, setTgPendingSession] = useState("");
   const [tgChatId, setTgChatId] = useState("");
   const [showTelegram, setShowTelegram] = useState(false);
+  const [showYoutube, setShowYoutube] = useState(false);
   const [tgStep, setTgStepLocal] = useState<"credentials" | "otp" | "chat">("credentials");
   const savedDriveId = (settings.driveId as string | null) || null;
   const savedApiKey = (settings.driveApiKey as string | null) || null;
@@ -405,6 +408,38 @@ function Onboarding() {
                 <Button
                   type="button"
                   variant="outline"
+                  onClick={() => setShowYoutube((value) => !value)}
+                  className="w-full"
+                >
+                  <span className="mr-2 grid size-4 place-items-center bg-[#ff0033] text-white">
+                    <span className="text-[9px] font-black">▶</span>
+                  </span>
+                  Add YouTube playlist
+                </Button>
+                {showYoutube && (
+                  <YoutubePlaylistImport
+                    initialApiKey={(settings.youtubeApiKey as string | null) ?? null}
+                    autoOpen={false}
+                    onImported={(result) => {
+                      const videoCount = result.playlist?.videos.length ?? result.videoCount ?? 0;
+                      setPlaylistOnly(result.mode === "embed");
+                      setFileCount({
+                        video: videoCount,
+                        pdf: 0,
+                        notes: 0,
+                        other: 0,
+                      });
+                      setStep("review");
+                    }}
+                  />
+                )}
+                <div className="flex items-center gap-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  <span className="h-px flex-1 bg-border" /> or{" "}
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
                   onClick={() => setShowTelegram(!showTelegram)}
                   className="w-full"
                 >
@@ -502,15 +537,22 @@ function Onboarding() {
               <ListChecks className="mb-3 size-8 text-success" />
               <h2 className="mb-1 text-3xl font-black uppercase tracking-tight">Files found</h2>
               <p className="mb-6 text-sm text-muted-foreground">
-                {fileCount.video + fileCount.pdf + fileCount.notes + fileCount.other} files ready to
-                organize.
+                {playlistOnly
+                  ? "Playlist saved. YouTube will handle its own playback. Enhance it later for lesson-level StudyVault features."
+                  : `${fileCount.video + fileCount.pdf + fileCount.notes + fileCount.other} files ready to organize.`}
               </p>
-              <div className="mb-6 grid grid-cols-2 border border-border bg-surface-1 text-center sm:grid-cols-4">
-                <Stat label="Videos" value={fileCount.video} />
-                <Stat label="PDFs" value={fileCount.pdf} />
-                <Stat label="Notes" value={fileCount.notes} />
-                <Stat label="Other" value={fileCount.other} />
-              </div>
+              {playlistOnly ? (
+                <div className="mb-6 border border-border bg-surface-1 p-4 text-sm text-muted-foreground">
+                  No API key shared. Playlist remains in privacy-first playback mode.
+                </div>
+              ) : (
+                <div className="mb-6 grid grid-cols-2 border border-border bg-surface-1 text-center sm:grid-cols-4">
+                  <Stat label="Videos" value={fileCount.video} />
+                  <Stat label="PDFs" value={fileCount.pdf} />
+                  <Stat label="Notes" value={fileCount.notes} />
+                  <Stat label="Other" value={fileCount.other} />
+                </div>
+              )}
               <div className="flex justify-end">
                 <Button onClick={() => setStep("goal")}>Continue</Button>
               </div>
@@ -561,12 +603,13 @@ function Onboarding() {
 }
 
 function Slide({ children }: { children: React.ReactNode }) {
+  const reducedMotion = useReducedMotion();
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
-      transition={{ duration: 0.25 }}
+      transition={{ duration: reducedMotion ? 0 : 0.25, ease: [0.2, 0, 0, 1] }}
       className="w-full border border-border bg-surface-1 p-6 shadow-[10px_10px_0_var(--foreground)] sm:p-8"
     >
       {children}

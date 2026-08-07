@@ -17,11 +17,13 @@ import { Route as ProgressRouteImport } from './routes/progress'
 import { Route as OrganizerRouteImport } from './routes/organizer'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as NotesRouteImport } from './routes/notes'
+import { Route as NotebooksRouteImport } from './routes/notebooks'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as GraphRouteImport } from './routes/graph'
 import { Route as FlashcardsRouteImport } from './routes/flashcards'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as StudyIndexRouteImport } from './routes/study.index'
+import { Route as YoutubePlaylistIdRouteImport } from './routes/youtube.$playlistId'
 import { Route as StudyResourceIdRouteImport } from './routes/study.$resourceId'
 
 const WorkspacesRoute = WorkspacesRouteImport.update({
@@ -64,6 +66,11 @@ const NotesRoute = NotesRouteImport.update({
   path: '/notes',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NotebooksRoute = NotebooksRouteImport.update({
+  id: '/notebooks',
+  path: '/notebooks',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LibraryRoute = LibraryRouteImport.update({
   id: '/library',
   path: '/library',
@@ -89,6 +96,11 @@ const StudyIndexRoute = StudyIndexRouteImport.update({
   path: '/study/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const YoutubePlaylistIdRoute = YoutubePlaylistIdRouteImport.update({
+  id: '/youtube/$playlistId',
+  path: '/youtube/$playlistId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const StudyResourceIdRoute = StudyResourceIdRouteImport.update({
   id: '/study/$resourceId',
   path: '/study/$resourceId',
@@ -100,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/flashcards': typeof FlashcardsRoute
   '/graph': typeof GraphRoute
   '/library': typeof LibraryRoute
+  '/notebooks': typeof NotebooksRoute
   '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
   '/organizer': typeof OrganizerRoute
@@ -109,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/trash': typeof TrashRoute
   '/workspaces': typeof WorkspacesRoute
   '/study/$resourceId': typeof StudyResourceIdRoute
+  '/youtube/$playlistId': typeof YoutubePlaylistIdRoute
   '/study/': typeof StudyIndexRoute
 }
 export interface FileRoutesByTo {
@@ -116,6 +130,7 @@ export interface FileRoutesByTo {
   '/flashcards': typeof FlashcardsRoute
   '/graph': typeof GraphRoute
   '/library': typeof LibraryRoute
+  '/notebooks': typeof NotebooksRoute
   '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
   '/organizer': typeof OrganizerRoute
@@ -125,6 +140,7 @@ export interface FileRoutesByTo {
   '/trash': typeof TrashRoute
   '/workspaces': typeof WorkspacesRoute
   '/study/$resourceId': typeof StudyResourceIdRoute
+  '/youtube/$playlistId': typeof YoutubePlaylistIdRoute
   '/study': typeof StudyIndexRoute
 }
 export interface FileRoutesById {
@@ -133,6 +149,7 @@ export interface FileRoutesById {
   '/flashcards': typeof FlashcardsRoute
   '/graph': typeof GraphRoute
   '/library': typeof LibraryRoute
+  '/notebooks': typeof NotebooksRoute
   '/notes': typeof NotesRoute
   '/onboarding': typeof OnboardingRoute
   '/organizer': typeof OrganizerRoute
@@ -142,6 +159,7 @@ export interface FileRoutesById {
   '/trash': typeof TrashRoute
   '/workspaces': typeof WorkspacesRoute
   '/study/$resourceId': typeof StudyResourceIdRoute
+  '/youtube/$playlistId': typeof YoutubePlaylistIdRoute
   '/study/': typeof StudyIndexRoute
 }
 export interface FileRouteTypes {
@@ -151,6 +169,7 @@ export interface FileRouteTypes {
     | '/flashcards'
     | '/graph'
     | '/library'
+    | '/notebooks'
     | '/notes'
     | '/onboarding'
     | '/organizer'
@@ -160,6 +179,7 @@ export interface FileRouteTypes {
     | '/trash'
     | '/workspaces'
     | '/study/$resourceId'
+    | '/youtube/$playlistId'
     | '/study/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -167,6 +187,7 @@ export interface FileRouteTypes {
     | '/flashcards'
     | '/graph'
     | '/library'
+    | '/notebooks'
     | '/notes'
     | '/onboarding'
     | '/organizer'
@@ -176,6 +197,7 @@ export interface FileRouteTypes {
     | '/trash'
     | '/workspaces'
     | '/study/$resourceId'
+    | '/youtube/$playlistId'
     | '/study'
   id:
     | '__root__'
@@ -183,6 +205,7 @@ export interface FileRouteTypes {
     | '/flashcards'
     | '/graph'
     | '/library'
+    | '/notebooks'
     | '/notes'
     | '/onboarding'
     | '/organizer'
@@ -192,6 +215,7 @@ export interface FileRouteTypes {
     | '/trash'
     | '/workspaces'
     | '/study/$resourceId'
+    | '/youtube/$playlistId'
     | '/study/'
   fileRoutesById: FileRoutesById
 }
@@ -200,6 +224,7 @@ export interface RootRouteChildren {
   FlashcardsRoute: typeof FlashcardsRoute
   GraphRoute: typeof GraphRoute
   LibraryRoute: typeof LibraryRoute
+  NotebooksRoute: typeof NotebooksRoute
   NotesRoute: typeof NotesRoute
   OnboardingRoute: typeof OnboardingRoute
   OrganizerRoute: typeof OrganizerRoute
@@ -209,6 +234,7 @@ export interface RootRouteChildren {
   TrashRoute: typeof TrashRoute
   WorkspacesRoute: typeof WorkspacesRoute
   StudyResourceIdRoute: typeof StudyResourceIdRoute
+  YoutubePlaylistIdRoute: typeof YoutubePlaylistIdRoute
   StudyIndexRoute: typeof StudyIndexRoute
 }
 
@@ -270,6 +296,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NotesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/notebooks': {
+      id: '/notebooks'
+      path: '/notebooks'
+      fullPath: '/notebooks'
+      preLoaderRoute: typeof NotebooksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/library': {
       id: '/library'
       path: '/library'
@@ -305,6 +338,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StudyIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/youtube/$playlistId': {
+      id: '/youtube/$playlistId'
+      path: '/youtube/$playlistId'
+      fullPath: '/youtube/$playlistId'
+      preLoaderRoute: typeof YoutubePlaylistIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/study/$resourceId': {
       id: '/study/$resourceId'
       path: '/study/$resourceId'
@@ -320,6 +360,7 @@ const rootRouteChildren: RootRouteChildren = {
   FlashcardsRoute: FlashcardsRoute,
   GraphRoute: GraphRoute,
   LibraryRoute: LibraryRoute,
+  NotebooksRoute: NotebooksRoute,
   NotesRoute: NotesRoute,
   OnboardingRoute: OnboardingRoute,
   OrganizerRoute: OrganizerRoute,
@@ -329,6 +370,7 @@ const rootRouteChildren: RootRouteChildren = {
   TrashRoute: TrashRoute,
   WorkspacesRoute: WorkspacesRoute,
   StudyResourceIdRoute: StudyResourceIdRoute,
+  YoutubePlaylistIdRoute: YoutubePlaylistIdRoute,
   StudyIndexRoute: StudyIndexRoute,
 }
 export const routeTree = rootRouteImport

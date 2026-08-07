@@ -6,11 +6,16 @@ import { nanoid } from "nanoid";
 const HANDLE_KEY = "offlineDirectoryHandle";
 
 interface WindowWithFS extends Window {
-  showDirectoryPicker?: (opts?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
+  showDirectoryPicker?: (opts?: {
+    mode?: "read" | "readwrite";
+  }) => Promise<FileSystemDirectoryHandle>;
 }
 
 export function isFsSupported(): boolean {
-  return typeof window !== "undefined" && typeof (window as WindowWithFS).showDirectoryPicker === "function";
+  return (
+    typeof window !== "undefined" &&
+    typeof (window as WindowWithFS).showDirectoryPicker === "function"
+  );
 }
 
 export async function pickDirectory(): Promise<FileSystemDirectoryHandle | null> {
@@ -43,13 +48,20 @@ export async function getDirectoryHandle(): Promise<FileSystemDirectoryHandle | 
   }
 }
 
-export async function downloadResourceToLocal(resourceId: string, onProgress?: (p: number) => void): Promise<void> {
+export async function downloadResourceToLocal(
+  resourceId: string,
+  onProgress?: (p: number) => void,
+): Promise<void> {
   const db = getDb();
   const r = await db.resources.get(resourceId);
   if (!r) throw new Error("Resource not found");
+  if (r.source === "youtube") throw new Error("YouTube lessons are available online only.");
   const dir = await getDirectoryHandle();
   if (!dir) throw new Error("No offline folder selected");
-  const fileName = `day${r.dayAssignment ?? 0}_${r.orderIndex}_${r.name}`.replace(/[\\/:*?"<>|]/g, "_");
+  const fileName = `day${r.dayAssignment ?? 0}_${r.orderIndex}_${r.name}`.replace(
+    /[\\/:*?"<>|]/g,
+    "_",
+  );
   const fileHandle = await dir.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
 
@@ -115,6 +127,23 @@ export async function resourceUrl(resourceId: string): Promise<string> {
   return driveDownloadUrl(r.driveId);
 }
 
+export async function readTextResource(resourceId: string): Promise<string | null> {
+  const db = getDb();
+  const resource = await db.resources.get(resourceId);
+  if (!resource) return null;
+  if (!resource.isDownloaded && !resource.telegramFileId && resource.source !== "local")
+    return null;
+
+  const url = await resourceUrl(resourceId);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    return await response.text();
+  } finally {
+    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+  }
+}
+
 // ───────────────────────────── Local folder import ─────────────────────────────
 
 export interface LocalImportResult {
@@ -143,11 +172,10 @@ export async function importLocalFolder(): Promise<LocalImportResult | null> {
   const now = Date.now();
   const seenFolderPaths = new Set<string>();
 
-  async function walk(
-    dir: FileSystemDirectoryHandle,
-    pathPrefix: string,
-  ): Promise<void> {
-    for await (const entry of (dir as unknown as { values(): AsyncIterable<FileSystemHandle> }).values()) {
+  async function walk(dir: FileSystemDirectoryHandle, pathPrefix: string): Promise<void> {
+    for await (const entry of (
+      dir as unknown as { values(): AsyncIterable<FileSystemHandle> }
+    ).values()) {
       if (entry.kind === "directory") {
         const sub = entry as FileSystemDirectoryHandle;
         const subPath = pathPrefix ? `${pathPrefix}/${sub.name}` : sub.name;

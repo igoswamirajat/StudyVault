@@ -86,15 +86,17 @@ function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
  */
 export async function getPlayableVideoUrl(resourceId: string): Promise<string | null> {
   const { getDb } = await import("@/db/schema");
-  const { readLocalResource, resourceUrl } = await import("@/services/fileSystemService");
+  const { resourceUrl } = await import("@/services/fileSystemService");
   const resource = await getDb().resources.get(resourceId);
   if (!resource) return null;
-  if (resource.isDownloaded) {
-    const file = await readLocalResource(resource.id);
-    return file ? URL.createObjectURL(file) : null;
-  }
-  if (resource.telegramFileId) {
-    return resourceUrl(resource.id);
+  // resourceUrl handles local imported files, offline downloads, and Telegram
+  // blobs while still refusing remote Drive streaming.
+  if (resource.isDownloaded || resource.telegramFileId || !resource.driveId) {
+    try {
+      return await resourceUrl(resource.id);
+    } catch {
+      return null;
+    }
   }
   return null;
 }

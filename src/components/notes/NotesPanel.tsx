@@ -14,6 +14,8 @@ import {
   BookmarkPlus,
   Brain,
   Loader2,
+  Eye,
+  Pencil,
 } from "lucide-react";
 import {
   createNote,
@@ -30,6 +32,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { onHighlight, onViewerState } from "@/lib/viewer-bus";
 import { Link as RouterLink } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 
 interface Props {
   resource: Resource | null;
@@ -47,8 +50,10 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
   const [saved, setSaved] = useState(true);
   const [summaryId, setSummaryId] = useState<string | null>(null);
   const [page, setPage] = useState<number | undefined>();
+  const [previewMode, setPreviewMode] = useState(false);
   const editorRef = useRef<Editor | null>(null);
   const timerRef = useRef<number | null>(null);
+  const pendingSaveRef = useRef<{ id: string; json: string; markdown: string } | null>(null);
 
   // Ensure a summary note exists for this resource
   useEffect(() => {
@@ -71,6 +76,17 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
       if (resourceId && s.resourceId === resourceId && s.page != null) setPage(s.page);
     });
   }, [resourceId]);
+
+  useEffect(() => setPreviewMode(false), [resourceId]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      const pending = pendingSaveRef.current;
+      if (pending)
+        void updateNote(pending.id, { content: pending.json, contentMarkdown: pending.markdown });
+    };
+  }, []);
 
   // Listen for "Save to Summary" highlights from viewers
   useEffect(() => {
@@ -138,7 +154,8 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
   }, [resource, summaryId, tab, summary?.updatedAt]);
 
   async function handleNew() {
-    const linkedTimestamp = tab === "notes" && getVideoTime ? getVideoTime() : null;
+    const linkedTimestamp =
+      tab === "notes" && resource?.type === "video" && getVideoTime ? getVideoTime() : null;
     const n = await createNote({
       resourceId: tab === "notes" ? resourceId : null,
       dayNumber: tab === "day" ? dayNumber : null,
@@ -154,9 +171,11 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
 
   function scheduleSave(id: string, json: string, md: string) {
     setSaved(false);
+    pendingSaveRef.current = { id, json, markdown: md };
     if (timerRef.current) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(async () => {
       await updateNote(id, { content: json, contentMarkdown: md });
+      pendingSaveRef.current = null;
       setSaved(true);
     }, 600);
   }
@@ -175,7 +194,7 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
     ed.chain().focus().insertContent(text).run();
   }
   function insertTimestamp() {
-    const t = getVideoTime?.();
+    const t = resource?.type === "video" ? getVideoTime?.() : null;
     if (t == null) return;
     insertText(`[${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}] `);
   }
@@ -200,7 +219,11 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
         toast.error("Configure your AI provider in Settings → AI first");
         return;
       }
-      const context = await buildResourceContext(resource);
+      const context = await buildResourceContext(resource, {
+        maxChars: 10000,
+        includeSiblings: false,
+        includeUserSummary: false,
+      });
       const media = await gatherResourceMedia(resource);
       const result = await aiGenerateSummary(resource.name, context, media);
       const ed = editorRef.current;
@@ -224,7 +247,10 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
         toast.error("Configure your AI provider in Settings → AI first");
         return;
       }
-      const context = await buildResourceContext(resource);
+      const context = await buildResourceContext(resource, {
+        maxChars: 10000,
+        includeSiblings: false,
+      });
       const media = await gatherResourceMedia(resource);
       const result = await aiGenerateAutoNote(resource.name, context, resource.type, media);
       const n = await createNote({
@@ -236,10 +262,9 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
       });
       await updateNote(n.id, {
         contentMarkdown: result.notes,
-        content: JSON.stringify({
-          type: "doc",
-          content: [{ type: "paragraph", content: [{ type: "text", text: result.notes }] }],
-        }),
+        // Keep raw Markdown here. TipTap's Markdown extension parses it on load;
+        // wrapping it as plain paragraph text makes Markdown render literally.
+        content: result.notes,
       });
       setTab("notes");
       setActiveId(n.id);
@@ -281,7 +306,7 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
           {summary ? (
             <div className="flex flex-col gap-3 p-3">
               <div className="flex flex-wrap items-center gap-1">
-                {getVideoTime && (
+                {resource?.type === "video" && getVideoTime && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -337,19 +362,40 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                   )}{" "}
                   AI Notes
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPreviewMode((value) => !value)}
+                  className="h-7 text-[11px]"
+                  title={previewMode ? "Edit note" : "Render Markdown"}
+                >
+                  {previewMode ? (
+                    <Pencil className="mr-1 size-3" />
+                  ) : (
+                    <Eye className="mr-1 size-3" />
+                  )}
+                  {previewMode ? "Edit" : "Render"}
+                </Button>
                 <span className="ml-auto text-[10px] text-muted-foreground">
                   {saved ? "Saved" : "Saving…"}
                 </span>
               </div>
 
-              <TipTapEditor
-                key={summary.id}
-                value={summary.content}
-                onChange={(json, md) => scheduleSave(summary.id, json, md)}
-                onReady={(ed) => (editorRef.current = ed)}
-                placeholder="Capture takeaways, highlights, and connections here…"
-                maxHeightClassName="max-h-[45vh]"
-              />
+              {previewMode ? (
+                <MarkdownRenderer
+                  markdown={summary.contentMarkdown}
+                  className="min-h-[140px] px-3 py-2"
+                />
+              ) : (
+                <TipTapEditor
+                  key={summary.id}
+                  value={summary.content}
+                  onChange={(json, md) => scheduleSave(summary.id, json, md)}
+                  onReady={(ed) => (editorRef.current = ed)}
+                  placeholder="Capture takeaways, highlights, and connections here…"
+                  maxHeightClassName="max-h-[45vh]"
+                />
+              )}
 
               {/* Backlinks */}
               <div className="border-t border-border pt-3">
@@ -405,31 +451,46 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                 </p>
               )}
               {list.map((n) => (
-                <button
+                <div
                   key={n.id}
-                  onClick={() => setActiveId(n.id)}
-                  className={`flex items-center justify-between rounded px-2 py-1 text-left text-xs ${
+                  className={`flex items-center rounded px-2 py-1 text-left text-xs ${
                     active?.id === n.id
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent/60"
                   }`}
                 >
-                  <span className="truncate">{n.title || "Untitled"}</span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveId(n.id)}
+                    className="min-w-0 flex-1 truncate text-left"
+                  >
+                    {n.title || "Untitled"}
+                  </button>
                   {n.linkedTimestamp != null && onSeekVideo && (
-                    <span
-                      role="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSeekVideo(n.linkedTimestamp ?? 0);
-                      }}
+                    <button
+                      type="button"
+                      onClick={() => onSeekVideo(n.linkedTimestamp ?? 0)}
                       className="ml-2 flex items-center gap-0.5 rounded bg-primary/20 px-1.5 py-0.5 text-[10px] text-primary"
+                      title="Seek video"
                     >
                       <Clock className="size-2.5" />
                       {Math.floor(n.linkedTimestamp / 60)}:
                       {String(Math.floor(n.linkedTimestamp % 60)).padStart(2, "0")}
-                    </span>
+                    </button>
                   )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveId(n.id);
+                      setPreviewMode(true);
+                    }}
+                    className="ml-1 rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground"
+                    title="Render Markdown"
+                    aria-label={`Render ${n.title || "note"}`}
+                  >
+                    <Eye className="size-3" />
+                  </button>
+                </div>
               ))}
             </div>
 
@@ -449,12 +510,19 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                     <Trash2 className="size-3.5" />
                   </Button>
                 </div>
-                <TipTapEditor
-                  key={active.id}
-                  value={active.content}
-                  onChange={(json, md) => scheduleSave(active.id, json, md)}
-                  maxHeightClassName="max-h-[40vh]"
-                />
+                {previewMode ? (
+                  <MarkdownRenderer
+                    markdown={active.contentMarkdown}
+                    className="min-h-[140px] px-2 py-1"
+                  />
+                ) : (
+                  <TipTapEditor
+                    key={active.id}
+                    value={active.content}
+                    onChange={(json, md) => scheduleSave(active.id, json, md)}
+                    maxHeightClassName="max-h-[40vh]"
+                  />
+                )}
                 <p className="mt-2 text-[10px] text-muted-foreground">
                   Updated {formatDistanceToNow(active.updatedAt)} ago
                 </p>

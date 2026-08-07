@@ -5,16 +5,38 @@ import { driveOpenUrl } from "@/services/driveService";
 import { Button } from "@/components/ui/button";
 import { ExternalLink, Bookmark, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { YoutubeViewer } from "./YoutubeViewer";
+
+export interface VideoController {
+  getCurrentTime: () => number | null;
+  seekTo: (seconds: number) => void;
+}
 
 interface Props {
   resource: Resource;
   resumeEnabled: boolean;
+  onEnded?: () => void;
+  onControllerReady?: (controller: VideoController | null) => void;
 }
 
-export function VideoViewer({ resource, resumeEnabled }: Props) {
+export function VideoViewer({ resource, resumeEnabled, onEnded, onControllerReady }: Props) {
   const [localUrl, setLocalUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const ref = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (!localUrl) {
+      onControllerReady?.(null);
+      return;
+    }
+    onControllerReady?.({
+      getCurrentTime: () => ref.current?.currentTime ?? null,
+      seekTo: (seconds) => {
+        if (ref.current) ref.current.currentTime = Math.max(0, seconds);
+      },
+    });
+    return () => onControllerReady?.(null);
+  }, [localUrl, onControllerReady]);
 
   // Try to load a local file (if downloaded). For Telegram resources, fetch via server.
   useEffect(() => {
@@ -22,6 +44,10 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
     let objectUrl: string | null = null;
     setLocalUrl(null);
     setLoading(true);
+    if (resource.source === "youtube") {
+      setLoading(false);
+      return;
+    }
     (async () => {
       try {
         if (resource.isDownloaded) {
@@ -45,7 +71,7 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [resource.id, resource.isDownloaded, resource.telegramFileId]);
+  }, [resource.id, resource.isDownloaded, resource.telegramFileId, resource.source]);
 
   // Resume position (local video only)
   useEffect(() => {
@@ -55,7 +81,9 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
       const pr = await getDb().video_progress.get(resource.id);
       if (pr && pr.currentTime > 5 && pr.currentTime < (v.duration || Infinity) - 5) {
         v.currentTime = pr.currentTime;
-        toast(`Resumed from ${Math.floor(pr.currentTime / 60)}:${String(Math.floor(pr.currentTime % 60)).padStart(2, "0")}`);
+        toast(
+          `Resumed from ${Math.floor(pr.currentTime / 60)}:${String(Math.floor(pr.currentTime % 60)).padStart(2, "0")}`,
+        );
       }
     };
     v.addEventListener("loadedmetadata", restore, { once: true });
@@ -71,7 +99,11 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
       const t = v.currentTime;
       if (Math.abs(t - last) > 3) {
         last = t;
-        void getDb().video_progress.put({ resourceId: resource.id, currentTime: t, updatedAt: Date.now() });
+        void getDb().video_progress.put({
+          resourceId: resource.id,
+          currentTime: t,
+          updatedAt: Date.now(),
+        });
       }
     };
     const onLoaded = () => {
@@ -92,12 +124,17 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
     if (!localUrl) return;
     const handler = async (e: KeyboardEvent) => {
       const t = e.target;
-      if (t instanceof HTMLElement && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (
+        t instanceof HTMLElement &&
+        (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
+      )
+        return;
       const v = ref.current;
       if (!v) return;
       if (e.key === " " || e.code === "Space") {
         e.preventDefault();
-        if (v.paused) v.play(); else v.pause();
+        if (v.paused) v.play();
+        else v.pause();
       } else if (e.key === "ArrowRight" && !e.shiftKey) {
         v.currentTime = Math.min(v.duration || 0, v.currentTime + 10);
       } else if (e.key === "ArrowLeft" && !e.shiftKey) {
@@ -127,7 +164,22 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
   }, [resource.id, localUrl]);
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-muted-foreground">Loading video…</div>;
+    return (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        Loading video…
+      </div>
+    );
+  }
+
+  if (resource.source === "youtube") {
+    return (
+      <YoutubeViewer
+        resource={resource}
+        resumeEnabled={resumeEnabled}
+        onEnded={onEnded}
+        onControllerReady={onControllerReady}
+      />
+    );
   }
 
   // Local file: use native <video> with all features
@@ -142,8 +194,10 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
           autoPlay
           onClick={(e) => {
             const v = e.currentTarget;
-            if (v.paused) v.play(); else v.pause();
+            if (v.paused) v.play();
+            else v.pause();
           }}
+          onEnded={onEnded}
           className="size-full flex-1 object-contain"
         />
         <div className="flex items-center justify-between border-t border-border bg-surface-1 px-3 py-2 text-xs text-muted-foreground">
@@ -195,7 +249,11 @@ export function VideoViewer({ resource, resumeEnabled }: Props) {
         <span>Use Drive's built-in controls · Download for keyboard shortcuts</span>
         <div className="flex items-center gap-2">
           <Button asChild size="sm" variant="ghost">
-            <a href={`https://drive.google.com/uc?export=download&id=${resource.driveId}`} target="_blank" rel="noreferrer">
+            <a
+              href={`https://drive.google.com/uc?export=download&id=${resource.driveId}`}
+              target="_blank"
+              rel="noreferrer"
+            >
               <Download className="mr-1 size-3.5" /> Download
             </a>
           </Button>

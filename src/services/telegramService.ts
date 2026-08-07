@@ -36,7 +36,9 @@ export async function verifyTelegramOtp(
   phoneCodeHash: string,
   pendingSession: string,
 ): Promise<{ ok: boolean; session?: string; error?: string }> {
-  return verifyTelegramCodeServerFn({ data: { apiId, apiHash, phone, code, phoneCodeHash, pendingSession } });
+  return verifyTelegramCodeServerFn({
+    data: { apiId, apiHash, phone, code, phoneCodeHash, pendingSession },
+  });
 }
 
 export async function scanTelegramChat(
@@ -90,6 +92,7 @@ export async function ingestTelegramFiles(
       addedAt: f.date * 1000,
       lastOpenedAt: null,
       durationSeconds: null,
+      transcriptText: f.caption ?? null,
       folderPath: folderPath || undefined,
       source: "telegram",
       telegramFileId: f.telegramFileId,
@@ -103,9 +106,7 @@ export async function ingestTelegramFiles(
   return { imported, skipped };
 }
 
-export async function downloadTelegramFile(
-  resourceId: string,
-): Promise<ArrayBuffer> {
+export async function downloadTelegramFile(resourceId: string): Promise<ArrayBuffer> {
   const db = getDb();
   const r = await db.resources.get(resourceId);
   if (!r || !r.telegramMessageId) throw new Error("Resource not found or not a Telegram file");

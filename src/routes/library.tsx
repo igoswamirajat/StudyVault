@@ -1,8 +1,8 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Search, FileText, Film, FileCode, Image as ImageIcon, File, Grid3x3, List, Download, CheckCircle2, FolderSearch, Flame, Play, Clock, Send, Cloud } from "lucide-react";
-import { getDb, type Resource, type ResourceType, type RevisionFlag } from "@/db/schema";
+import { Search, FileText, Film, FileCode, Image as ImageIcon, File, Grid3x3, List, Download, CheckCircle2, FolderSearch, Flame, Play, Clock } from "lucide-react";
+import { getDb, type Resource, type ResourceType, type RevisionFlag, type YoutubePlaylist } from "@/db/schema";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +33,7 @@ export const Route = createFileRoute("/library")({
   ),
 });
 
-type FilterKey = "all" | "video" | "pdf" | "markdown" | "in_progress" | "completed" | "downloaded" | "revision" | "drive" | "telegram";
+type FilterKey = "all" | "video" | "pdf" | "markdown" | "in_progress" | "completed" | "downloaded" | "revision" | "drive" | "telegram" | "youtube";
 
 function LibraryPage() {
   const navigate = useNavigate();
@@ -43,6 +43,7 @@ function LibraryPage() {
   const [sort, setSort] = useState<"day" | "name" | "recent">("day");
 
   const allResources = (useLiveQuery(() => getDb().resources.toArray(), []) ?? []);
+  const youtubePlaylists = useLiveQuery(() => getDb().youtube_playlists.toArray(), []) ?? [];
   const resources = useMemo(() => allResources.filter((r) => (r.status ?? "active") === "active"), [allResources]);
 
   const progress = (useLiveQuery(() => getDb().progress.toArray(), []) ?? []);
@@ -76,6 +77,7 @@ function LibraryPage() {
     if (filter === "revision") r = r.filter((x) => x.revisionFlag && x.revisionFlag !== "done");
     if (filter === "drive") r = r.filter((x) => (x.source ?? (x.driveId ? "drive" : "local")) === "drive");
     if (filter === "telegram") r = r.filter((x) => x.source === "telegram");
+    if (filter === "youtube") r = r.filter((x) => x.source === "youtube");
     if (query) r = r.filter((x) => x.name.toLowerCase().includes(query.toLowerCase()));
     r.sort((a, b) => {
       if (sort === "name") {
@@ -107,9 +109,7 @@ function LibraryPage() {
   }
 
   if (resources.length === 0) {
-    return (
-      <EmptyLibrary />
-    );
+    return youtubePlaylists.length > 0 ? <YoutubeOnlyLibrary playlists={youtubePlaylists} /> : <EmptyLibrary />;
   }
 
   return (
@@ -204,6 +204,7 @@ function LibraryPage() {
               ["downloaded", "Downloaded"],
               ["drive", "Drive"],
               ["telegram", "Telegram"],
+              ["youtube", "YouTube"],
             ] as const
           ).map(([key, label]) => (
             <button
@@ -250,6 +251,8 @@ function LibraryPage() {
         </div>
       </section>
 
+      {youtubePlaylists.length > 0 && <YoutubePlaylistShelf playlists={youtubePlaylists} />}
+
       {/* ── Results ────────────────────────────────────────────── */}
       <section>
         {filtered.length === 0 ? (
@@ -284,6 +287,52 @@ function LibraryPage() {
 
       </section>
     </div>
+  );
+}
+
+function YoutubeOnlyLibrary({ playlists }: { playlists: YoutubePlaylist[] }) {
+  return (
+    <div className="mx-auto w-full max-w-[1100px] space-y-8 px-4 py-8 sm:px-8 sm:py-10">
+      <header>
+        <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-muted-foreground">Your Library</p>
+        <h1 className="mt-2 text-4xl font-black uppercase leading-none tracking-tight sm:text-5xl">Playlists</h1>
+        <p className="mt-3 max-w-xl text-sm text-muted-foreground">
+          These playlists use YouTube playback directly. Enhance any playlist later for lesson-level StudyVault features.
+        </p>
+      </header>
+      <YoutubePlaylistShelf playlists={playlists} />
+    </div>
+  );
+}
+
+function YoutubePlaylistShelf({ playlists }: { playlists: YoutubePlaylist[] }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-muted-foreground">YouTube playlists</p>
+        <span className="text-xs text-muted-foreground">{playlists.length} saved</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {playlists.map((playlist) => (
+          <Link
+            key={playlist.id}
+            to="/youtube/$playlistId"
+            params={{ playlistId: playlist.playlistId }}
+            className="group flex items-center gap-3 border border-border bg-surface-1 p-4 transition-[transform,background-color,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:bg-background hover:shadow-[4px_4px_0_var(--foreground)]"
+          >
+            <span className="grid size-10 shrink-0 place-items-center bg-[#ff0033] text-white">
+              <Play className="size-4 fill-current" />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold">{playlist.title}</span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {playlist.mode === "expanded" ? `${playlist.videoCount ?? 0} lessons` : "Privacy-first playback"}
+              </span>
+            </span>
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -468,6 +517,9 @@ function ResourceCard({
           {resource.dayAssignment != null && (
             <Badge className="bg-primary/80 text-primary-foreground">Day {resource.dayAssignment}</Badge>
           )}
+          {resource.source === "youtube" && (
+            <Badge className="bg-[#ff0033]/90 text-white">YouTube</Badge>
+          )}
         </div>
         <div className="absolute right-2 top-2 flex items-center gap-1">
           {completed && (
@@ -590,9 +642,9 @@ function EmptyLibrary() {
       </div>
       <h2 className="mb-2 text-2xl font-black uppercase tracking-tight">No resources yet</h2>
       <p className="mb-6 max-w-sm text-sm text-muted-foreground">
-        Connect a public Google Drive folder to start building your study library.
+         Connect a source to start building your study library.
       </p>
-      <Button onClick={() => navigate({ to: "/onboarding" })}>Connect Drive folder</Button>
+       <Button onClick={() => navigate({ to: "/onboarding" })}>Add course source</Button>
     </div>
   );
 }

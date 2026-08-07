@@ -398,7 +398,7 @@ function Organizer() {
         <aside className="border-b border-border bg-surface-1/40 p-3 lg:border-b-0 lg:border-r">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
-              Drive Folders
+              Course Folders
             </h2>
             <Button
               size="sm"
@@ -432,7 +432,7 @@ function Organizer() {
             ))}
             {tree.length === 0 && (
               <p className="px-2 py-4 text-xs text-muted-foreground">
-                No folders yet. Connect a Drive folder or add one manually.
+                No folders yet. Connect a source or add one manually.
               </p>
             )}
             <UnassignedDrop
