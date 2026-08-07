@@ -5,13 +5,12 @@ import { getDb, type Note } from "@/db/schema";
 import { ClientOnly } from "@/components/common/ClientOnly";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Search, Trash2, FileText, Download, Eye, Pencil } from "lucide-react";
+import { Plus, Search, Trash2, FileText, Download } from "lucide-react";
 import { createNote, updateNote, deleteNote } from "@/services/notesService";
 import { TipTapEditor } from "@/components/notes/TipTapEditor";
 import { formatDistanceToNow } from "date-fns";
 import { saveAs } from "file-saver";
 import { useRef } from "react";
-import { MarkdownRenderer } from "@/components/notes/MarkdownRenderer";
 
 export const Route = createFileRoute("/notes")({
   component: () => (
@@ -142,19 +141,6 @@ function NotesPage() {
               <span className="mx-3 text-xs text-muted-foreground">
                 Saved {formatDistanceToNow(savedAt)} ago
               </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setPreviewMode((value) => !value)}
-                title="Toggle Markdown render"
-              >
-                {previewMode ? (
-                  <Pencil className="mr-1 size-3.5" />
-                ) : (
-                  <Eye className="mr-1 size-3.5" />
-                )}
-                {previewMode ? "Edit" : "Render"}
-              </Button>
               <Button size="sm" variant="ghost" onClick={exportNote}>
                 <Download className="mr-1 size-3.5" /> Export
               </Button>
@@ -163,18 +149,14 @@ function NotesPage() {
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">
-              {previewMode ? (
-                <MarkdownRenderer
-                  markdown={active.contentMarkdown}
-                  className="min-h-[300px] px-2 py-1"
-                />
-              ) : (
-                <TipTapEditor
-                  value={active.content}
-                  onChange={handleChange}
-                  maxHeightClassName="max-h-[65vh]"
-                />
-              )}
+              <TipTapEditor
+                value={active.content}
+                onChange={handleChange}
+                maxHeightClassName="max-h-[65vh]"
+                previewMode={previewMode}
+                previewMarkdown={active.contentMarkdown}
+                onTogglePreview={() => setPreviewMode((value) => !value)}
+              />
             </div>
           </>
         ) : (

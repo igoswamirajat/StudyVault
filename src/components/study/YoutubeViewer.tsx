@@ -41,8 +41,8 @@ interface YoutubeApi {
       videoId: string;
       playerVars?: Record<string, number | string>;
       events?: {
-        onReady?: () => void;
-        onStateChange?: (event: { data: number }) => void;
+        onReady?: (event: { target: unknown }) => void;
+        onStateChange?: (event: { data: number; target: unknown }) => void;
         onError?: (event: { data: number }) => void;
       };
     },
@@ -105,7 +105,7 @@ export function YoutubeViewer({ resource, resumeEnabled, onEnded, onControllerRe
     void loadYoutubeApi()
       .then((api) => {
         if (!active || !mountRef.current) return;
-        const candidate = new api.Player(mountRef.current, {
+        player = new api.Player(mountRef.current, {
           videoId,
           playerVars: {
             autoplay: 1,
@@ -115,9 +115,15 @@ export function YoutubeViewer({ resource, resumeEnabled, onEnded, onControllerRe
             origin: window.location.origin,
           },
           events: {
-            onReady: async () => {
-              if (!active || !isUsablePlayer(player)) return;
-              playerRef.current = player;
+            onReady: async (event) => {
+              const readyPlayer = event?.target;
+              if (!active || !isUsablePlayer(readyPlayer)) {
+                setError("YouTube player did not expose playback controls.");
+                setLoading(false);
+                return;
+              }
+              player = readyPlayer;
+              playerRef.current = readyPlayer;
               onControllerReady?.({
                 getCurrentTime: () => {
                   const current = playerRef.current;
@@ -128,7 +134,7 @@ export function YoutubeViewer({ resource, resumeEnabled, onEnded, onControllerRe
                   if (isUsablePlayer(current)) current.seekTo(Math.max(0, seconds), true);
                 },
               });
-              const nextDuration = player.getDuration();
+              const nextDuration = readyPlayer.getDuration();
               if (nextDuration > 0) {
                 setDuration(nextDuration);
                 await getDb().resources.update(resource.id, { durationSeconds: nextDuration });
@@ -140,7 +146,7 @@ export function YoutubeViewer({ resource, resumeEnabled, onEnded, onControllerRe
                   progress.currentTime > 5 &&
                   progress.currentTime < nextDuration - 5
                 ) {
-                  player.seekTo(progress.currentTime, true);
+                  readyPlayer.seekTo(progress.currentTime, true);
                   setCurrentTime(progress.currentTime);
                   toast(`Resumed from ${formatTimestamp(progress.currentTime)}`);
                 }
@@ -148,7 +154,7 @@ export function YoutubeViewer({ resource, resumeEnabled, onEnded, onControllerRe
               setLoading(false);
             },
             onStateChange: (event) => {
-              if (!player) return;
+              if (!isUsablePlayer(event?.target)) return;
               if (event.data === api.PlayerState.ENDED) {
                 if (onEnded) onEnded();
                 else void setStatus(resource.id, "completed");
@@ -160,8 +166,6 @@ export function YoutubeViewer({ resource, resumeEnabled, onEnded, onControllerRe
             },
           },
         });
-        if (isUsablePlayer(candidate)) player = candidate;
-        else setError("YouTube player returned an incompatible API object.");
       })
       .catch((reason: unknown) => {
         if (!active) return;

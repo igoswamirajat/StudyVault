@@ -15,11 +15,24 @@ import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import {
-  Bold, Italic, Strikethrough, List, ListOrdered, Quote, Code,
-  Heading1, Heading2, Link as LinkIcon, Table as TableIcon,
-  CheckSquare, Braces,
+  Bold,
+  Italic,
+  Strikethrough,
+  List,
+  ListOrdered,
+  Quote,
+  Code,
+  Heading1,
+  Heading2,
+  Link as LinkIcon,
+  Table as TableIcon,
+  CheckSquare,
+  Braces,
+  Eye,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 
 const lowlight = createLowlight(common);
 
@@ -31,6 +44,9 @@ interface Props {
   onReady?: (editor: Editor) => void;
   /** Tailwind max-height class for the scrollable editor body. Defaults to max-h-[40vh]. */
   maxHeightClassName?: string;
+  previewMode?: boolean;
+  previewMarkdown?: string;
+  onTogglePreview?: () => void;
 }
 
 export function TipTapEditor({
@@ -40,6 +56,9 @@ export function TipTapEditor({
   autoFocus,
   onReady,
   maxHeightClassName = "max-h-[40vh]",
+  previewMode,
+  previewMarkdown,
+  onTogglePreview,
 }: Props) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -58,20 +77,27 @@ export function TipTapEditor({
       TaskList,
       TaskItem.configure({ nested: true }),
       Placeholder.configure({ placeholder: placeholder ?? "Start typing your note…" }),
-      Markdown.configure({ html: false, linkify: true, transformPastedText: true, transformCopiedText: false }),
+      Markdown.configure({
+        html: false,
+        linkify: true,
+        transformPastedText: true,
+        transformCopiedText: false,
+      }),
     ],
     content: value ? (safeParseJson(value) as object) : "",
     autofocus: autoFocus,
     onUpdate({ editor }) {
       const json = JSON.stringify(editor.getJSON());
       // Prefer markdown serialization when available so notes round-trip as MD.
-      const storage = (editor.storage as unknown as { markdown?: { getMarkdown: () => string } }).markdown;
+      const storage = (editor.storage as unknown as { markdown?: { getMarkdown: () => string } })
+        .markdown;
       const md = storage?.getMarkdown ? storage.getMarkdown() : editor.getText();
       onChangeRef.current(json, md);
     },
     editorProps: {
       attributes: {
-        class: "prose prose-invert prose-sm max-w-none min-h-[140px] focus:outline-none px-3 py-2 break-words",
+        class:
+          "prose prose-invert prose-sm max-w-none min-h-[140px] focus:outline-none px-3 py-2 break-words",
       },
     },
     immediatelyRender: false,
@@ -91,49 +117,94 @@ export function TipTapEditor({
     if (editor && onReady) onReady(editor);
   }, [editor, onReady]);
 
-
   if (!editor) return <div className="h-32 animate-pulse rounded-md bg-surface-2" />;
 
   return (
     <div className="flex flex-col rounded-md border border-border bg-surface-1">
       <div className="flex flex-wrap items-center gap-0.5 border-b border-border p-1">
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive("bold")} aria-label="Bold">
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleBold().run()}
+          active={editor.isActive("bold")}
+          aria-label="Bold"
+        >
           <Bold className="size-3.5" />
         </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive("italic")} aria-label="Italic">
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+          active={editor.isActive("italic")}
+          aria-label="Italic"
+        >
           <Italic className="size-3.5" />
         </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive("strike")} aria-label="Strikethrough">
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleStrike().run()}
+          active={editor.isActive("strike")}
+          aria-label="Strikethrough"
+        >
           <Strikethrough className="size-3.5" />
         </ToolbarBtn>
         <span className="mx-1 h-4 w-px bg-border" />
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={editor.isActive("heading", { level: 1 })} aria-label="Heading 1">
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+          active={editor.isActive("heading", { level: 1 })}
+          aria-label="Heading 1"
+        >
           <Heading1 className="size-3.5" />
         </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} active={editor.isActive("heading", { level: 2 })} aria-label="Heading 2">
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+          active={editor.isActive("heading", { level: 2 })}
+          aria-label="Heading 2"
+        >
           <Heading2 className="size-3.5" />
         </ToolbarBtn>
         <span className="mx-1 h-4 w-px bg-border" />
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleBulletList().run()} active={editor.isActive("bulletList")} aria-label="Bullet list">
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleBulletList().run()}
+          active={editor.isActive("bulletList")}
+          aria-label="Bullet list"
+        >
           <List className="size-3.5" />
         </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleOrderedList().run()} active={editor.isActive("orderedList")} aria-label="Ordered list">
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          active={editor.isActive("orderedList")}
+          aria-label="Ordered list"
+        >
           <ListOrdered className="size-3.5" />
         </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={editor.isActive("blockquote")} aria-label="Quote">
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          active={editor.isActive("blockquote")}
+          aria-label="Quote"
+        >
           <Quote className="size-3.5" />
         </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={editor.isActive("codeBlock")} aria-label="Code block">
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+          active={editor.isActive("codeBlock")}
+          aria-label="Code block"
+        >
           <Braces className="size-3.5" />
         </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleCode().run()} active={editor.isActive("code")} aria-label="Inline code">
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleCode().run()}
+          active={editor.isActive("code")}
+          aria-label="Inline code"
+        >
           <Code className="size-3.5" />
         </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleTaskList().run()} active={editor.isActive("taskList")} aria-label="Task list">
+        <ToolbarBtn
+          onClick={() => editor.chain().focus().toggleTaskList().run()}
+          active={editor.isActive("taskList")}
+          aria-label="Task list"
+        >
           <CheckSquare className="size-3.5" />
         </ToolbarBtn>
         <ToolbarBtn
-          onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+          onClick={() =>
+            editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+          }
           active={editor.isActive("table")}
           aria-label="Table"
         >
@@ -149,10 +220,23 @@ export function TipTapEditor({
         >
           <LinkIcon className="size-3.5" />
         </ToolbarBtn>
+        <span className="mx-1 h-4 w-px bg-border" />
+        <ToolbarBtn
+          onClick={onTogglePreview}
+          aria-label={previewMode ? "Edit note" : "Render markdown"}
+        >
+          {previewMode ? <Pencil className="size-3.5" /> : <Eye className="size-3.5" />}
+        </ToolbarBtn>
       </div>
-      <div className={cn("overflow-y-auto overflow-x-hidden", maxHeightClassName)}>
-        <EditorContent editor={editor} />
-      </div>
+      {previewMode ? (
+        <div className={cn("overflow-y-auto px-3 py-2", maxHeightClassName)}>
+          <MarkdownRenderer markdown={previewMarkdown ?? ""} />
+        </div>
+      ) : (
+        <div className={cn("overflow-y-auto overflow-x-hidden", maxHeightClassName)}>
+          <EditorContent editor={editor} />
+        </div>
+      )}
     </div>
   );
 }

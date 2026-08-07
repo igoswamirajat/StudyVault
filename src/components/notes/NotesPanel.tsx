@@ -362,20 +362,6 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                   )}{" "}
                   AI Notes
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setPreviewMode((value) => !value)}
-                  className="h-7 text-[11px]"
-                  title={previewMode ? "Edit note" : "Render Markdown"}
-                >
-                  {previewMode ? (
-                    <Pencil className="mr-1 size-3" />
-                  ) : (
-                    <Eye className="mr-1 size-3" />
-                  )}
-                  {previewMode ? "Edit" : "Render"}
-                </Button>
                 <span className="ml-auto text-[10px] text-muted-foreground">
                   {saved ? "Saved" : "Saving…"}
                 </span>
@@ -394,6 +380,9 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                   onReady={(ed) => (editorRef.current = ed)}
                   placeholder="Capture takeaways, highlights, and connections here…"
                   maxHeightClassName="max-h-[45vh]"
+                  previewMode={previewMode}
+                  previewMarkdown={summary.contentMarkdown}
+                  onTogglePreview={() => setPreviewMode((value) => !value)}
                 />
               )}
 
@@ -510,19 +499,15 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                     <Trash2 className="size-3.5" />
                   </Button>
                 </div>
-                {previewMode ? (
-                  <MarkdownRenderer
-                    markdown={active.contentMarkdown}
-                    className="min-h-[140px] px-2 py-1"
-                  />
-                ) : (
-                  <TipTapEditor
-                    key={active.id}
-                    value={active.content}
-                    onChange={(json, md) => scheduleSave(active.id, json, md)}
-                    maxHeightClassName="max-h-[40vh]"
-                  />
-                )}
+                <TipTapEditor
+                  key={active.id}
+                  value={active.content}
+                  onChange={(json, md) => scheduleSave(active.id, json, md)}
+                  maxHeightClassName="max-h-[40vh]"
+                  previewMode={previewMode}
+                  previewMarkdown={active.contentMarkdown}
+                  onTogglePreview={() => setPreviewMode((value) => !value)}
+                />
                 <p className="mt-2 text-[10px] text-muted-foreground">
                   Updated {formatDistanceToNow(active.updatedAt)} ago
                 </p>
