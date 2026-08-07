@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { getDb, type Note, type Resource } from "@/db/schema";
 import type { Editor } from "@tiptap/react";
 import { TipTapEditor } from "./TipTapEditor";
+import { NotebookEmbed } from "@/components/notebooks/NotebookEmbed";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
@@ -16,6 +17,7 @@ import {
   Loader2,
   Eye,
   Pencil,
+  Code2,
 } from "lucide-react";
 import {
   createNote,
@@ -42,7 +44,7 @@ interface Props {
   getVideoTime?: () => number | null;
 }
 
-type TabKey = "summary" | "notes" | "day" | "all";
+type TabKey = "summary" | "notes" | "day" | "all" | "notebook";
 
 export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVideoTime }: Props) {
   const [tab, setTab] = useState<TabKey>("summary");
@@ -293,6 +295,9 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
             <TabsTrigger value="all" className="text-xs">
               All
             </TabsTrigger>
+            <TabsTrigger value="notebook" className="gap-1 text-xs" disabled={!resourceId}>
+              <Code2 className="size-3" /> Code
+            </TabsTrigger>
           </TabsList>
           {tab !== "summary" && (
             <Button size="sm" variant="ghost" onClick={handleNew}>
@@ -519,6 +524,16 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
             )}
           </TabsContent>
         ))}
+
+        {/* NOTEBOOK TAB */}
+        {resourceId && (
+          <TabsContent
+            value="notebook"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
+          >
+            <NotebookEmbed resourceId={resourceId} resourceName={resource?.name} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
