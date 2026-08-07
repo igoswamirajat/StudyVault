@@ -133,8 +133,7 @@ export async function readTextResource(resourceId: string): Promise<string | nul
   if (!resource) return null;
 
   // Created in-app (no remote/disk source): fall back to the scaffold note content.
-  const isInAppLocal =
-    resource.source === "local" && !resource.localPath && !resource.isDownloaded;
+  const isInAppLocal = resource.source === "local" && !resource.localPath && !resource.isDownloaded;
 
   if (!isInAppLocal) {
     if (!resource.isDownloaded && !resource.telegramFileId && resource.source !== "local")
@@ -163,8 +162,7 @@ export async function writeTextResource(resourceId: string, text: string): Promi
   const resource = await db.resources.get(resourceId);
   if (!resource) return;
 
-  const isInAppLocal =
-    resource.source === "local" && !resource.localPath && !resource.isDownloaded;
+  const isInAppLocal = resource.source === "local" && !resource.localPath && !resource.isDownloaded;
   if (isInAppLocal) {
     const note = await db.notes
       .where("resourceId")

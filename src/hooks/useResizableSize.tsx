@@ -63,7 +63,13 @@ export function useResizableSize({
 }
 
 /** Thin vertical drag handle. Place *between* two sibling flex children. */
-export function ResizeHandle({ onMouseDown, side }: { onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void; side: "left" | "right" }) {
+export function ResizeHandle({
+  onMouseDown,
+  side,
+}: {
+  onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
+  side: "left" | "right";
+}) {
   return (
     <div
       role="separator"

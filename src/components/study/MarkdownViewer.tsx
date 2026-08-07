@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { Resource } from "@/db/schema";
-import { readLocalResource, readTextResource, writeTextResource } from "@/services/fileSystemService";
+import {
+  readLocalResource,
+  readTextResource,
+  writeTextResource,
+} from "@/services/fileSystemService";
 import { driveOpenUrl } from "@/services/driveService";
 import { Button } from "@/components/ui/button";
 import { ExternalLink, Play } from "lucide-react";
@@ -224,7 +228,12 @@ function EditableTextResource({
         </span>
         <div className="flex items-center gap-1">
           {isHtml && (
-            <Button size="sm" variant="outline" onClick={() => setPreview((v) => !v)} className="h-7">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setPreview((v) => !v)}
+              className="h-7"
+            >
               {preview ? "Edit" : "Preview"}
             </Button>
           )}
@@ -239,7 +248,13 @@ function EditableTextResource({
               <Play className="mr-1 size-3" /> {running ? "Running…" : "Run"}
             </Button>
           )}
-          <Button size="sm" variant="outline" disabled={!dirty} onClick={() => void save()} className="h-7">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!dirty}
+            onClick={() => void save()}
+            className="h-7"
+          >
             Save
           </Button>
         </div>

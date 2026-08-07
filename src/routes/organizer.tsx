@@ -410,7 +410,9 @@ function Organizer() {
             >
               <FolderPlus className="size-3.5" />
             </Button>
-            <NewContentMenu defaultFolderPath={selectedPath === "__unassigned__" ? "" : selectedPath} />
+            <NewContentMenu
+              defaultFolderPath={selectedPath === "__unassigned__" ? "" : selectedPath}
+            />
           </div>
           <div className="space-y-0.5">
             {tree.map((node) => (
