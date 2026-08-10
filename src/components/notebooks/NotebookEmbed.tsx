@@ -91,8 +91,8 @@ export function NotebookEmbed({
         </Button>
       </div>
 
-      {/* Notebook list — vertical, like notes */}
-      <div className="max-h-32 shrink-0 overflow-y-auto border-b border-border">
+      {/* Notebook list — vertical, isolated scroll (like cells below) */}
+      <div className="max-h-40 shrink-0 overflow-y-auto border-b border-border">
         {notebooks.length === 0 ? (
           <div className="px-3 py-3 text-center text-[11px] text-muted-foreground">
             No notebooks yet.{" "}
@@ -141,7 +141,7 @@ export function NotebookEmbed({
           Select a notebook above to start coding.
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="mt-1.5 flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Title bar */}
           <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
             <input
@@ -238,7 +238,10 @@ function EmbeddedCell({
   }
 
   return (
-    <section className="overflow-hidden border border-border bg-surface-1">
+    <section
+      className="flex flex-col overflow-hidden border border-border bg-surface-1"
+      style={{ maxHeight: "24rem" }}
+    >
       <div className="flex items-center justify-between border-b border-border px-2 py-1">
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
@@ -295,24 +298,28 @@ function EmbeddedCell({
           </Button>
         </div>
       </div>
-      {preview && cell.type === "markdown" ? (
-        <MarkdownRenderer markdown={source} className="min-h-16 px-2 py-1.5" />
-      ) : (
-        <textarea
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          onBlur={() => void saveSource()}
-          className={`min-h-20 w-full resize-y border-0 bg-background px-2 py-1.5 text-xs outline-none ${cell.type === "code" ? "font-mono" : ""}`}
-          placeholder={cell.type === "code" ? "Write code…" : "Write Markdown…"}
-        />
-      )}
-      {cell.type === "code" && cell.output && (
-        <NotebookCellOutput
-          output={cell.output}
-          status={cell.status}
-          className="px-2 py-1.5 text-[10px]"
-        />
-      )}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {preview && cell.type === "markdown" ? (
+          <MarkdownRenderer markdown={source} className="min-h-16 px-2 py-1.5" />
+        ) : (
+          <textarea
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            onBlur={() => void saveSource()}
+            className={`h-full min-h-20 w-full resize-none border-0 bg-background px-2 py-1.5 text-xs outline-none ${cell.type === "code" ? "font-mono" : ""}`}
+            placeholder={cell.type === "code" ? "Write code…" : "Write Markdown…"}
+          />
+        )}
+        {cell.type === "code" && cell.output && (
+          <div className="max-h-40 overflow-y-auto overscroll-contain border-t border-border">
+            <NotebookCellOutput
+              output={cell.output}
+              status={cell.status}
+              className="px-2 py-1.5 text-[10px]"
+            />
+          </div>
+        )}
+      </div>
     </section>
   );
 }

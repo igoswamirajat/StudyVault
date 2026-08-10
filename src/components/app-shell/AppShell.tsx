@@ -285,14 +285,17 @@ function AppShellInner({ children }: { children: ReactNode }) {
     );
   }
 
+  const isFixedRoute =
+    pathname === "/notes" ||
+    pathname.startsWith("/notes/") ||
+    pathname.startsWith("/notebooks") ||
+    pathname.startsWith("/study/");
+
   return (
-    <div className="flex min-h-screen w-full flex-col bg-background text-foreground">
+    <div className="flex h-dvh w-full flex-col bg-background text-foreground">
       <header className="sticky top-0 z-40 bg-[#fff]">
         {/* Row 1: 48px */}
-        <div
-          className="flex h-12 items-center justify-between px-4 sm:px-7"
-          style={{ borderBottom: "1px solid #ebebeb" }}
-        >
+        <div className="flex h-12 items-center justify-between border-b border-border px-4 sm:px-7">
           {/* Left: Logo + breadcrumb */}
           <div className="flex min-w-0 items-center gap-4">
             <Link
@@ -313,15 +316,15 @@ function AppShellInner({ children }: { children: ReactNode }) {
                 STUDYVAULT
               </span>
             </Link>
-            <div className="hidden h-5 shrink-0 bg-[#e5e5e5] sm:block" style={{ width: "1.5px" }} />
+            <div className="hidden h-5 shrink-0 bg-border sm:block" style={{ width: "1.5px" }} />
             <div
               className="hidden min-w-0 items-center gap-1.5 text-[11px] font-bold uppercase sm:flex"
               style={{ letterSpacing: "0.06em" }}
             >
               {wsName && (
                 <>
-                  <span className="truncate text-[#888]">{wsName}</span>
-                  <span className="text-[#888]">›</span>
+                  <span className="truncate text-muted-foreground">{wsName}</span>
+                  <span className="text-muted-foreground">›</span>
                 </>
               )}
               <span className="truncate text-[#111]">{activeNavItem?.label ?? ""}</span>
@@ -374,10 +377,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
         </div>
 
         {/* Row 2: 44px tab strip */}
-        <div
-          className="flex h-11 items-center justify-between px-4 sm:px-7"
-          style={{ borderBottom: "1px solid #ebebeb" }}
-        >
+        <div className="flex h-11 items-center justify-between border-b border-border px-4 sm:px-7">
           <div
             ref={tabsContainerRef}
             className="relative flex items-center gap-1 overflow-x-auto"
@@ -407,7 +407,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
                   }}
                   className={cn(
                     "relative z-10 inline-flex h-8 shrink-0 items-center gap-1.5 px-3 text-[11px] font-bold uppercase transition-colors",
-                    active ? "text-white" : "text-[#777] hover:text-[#111]",
+                    active ? "text-white" : "text-muted-foreground hover:text-foreground",
                   )}
                   style={{ letterSpacing: "0.07em" }}
                   onClick={() => {
@@ -457,7 +457,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
                     "flex items-center gap-2 px-3 py-2 text-xs font-bold uppercase tracking-tight",
                     active
                       ? "bg-[#111] text-white"
-                      : "text-[#777] hover:bg-[#f5f5f5] hover:text-[#111]",
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                   style={{ borderRadius: "2px" }}
                 >
@@ -470,7 +470,12 @@ function AppShellInner({ children }: { children: ReactNode }) {
         )}
       </header>
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <main
+        className={cn(
+          "flex min-h-0 min-w-0 flex-1 flex-col",
+          isFixedRoute ? "overflow-hidden" : "overflow-y-auto overscroll-contain",
+        )}
+      >
         <AnimatePresence mode="wait">
           <motion.div
             key={pathname}
@@ -478,16 +483,18 @@ function AppShellInner({ children }: { children: ReactNode }) {
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: -10, filter: "blur(4px)" }}
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            className="flex-1"
+            className="min-h-0 flex-1"
           >
             {children}
           </motion.div>
         </AnimatePresence>
       </main>
 
-      <footer className="border-t border-border px-4 py-4 text-xs font-medium uppercase tracking-widest text-muted-foreground sm:px-7">
-        StudyVault · Study Workspace
-      </footer>
+      {!isFixedRoute && (
+        <footer className="border-t border-border px-4 py-4 text-xs font-medium uppercase tracking-widest text-muted-foreground sm:px-7">
+          StudyVault · Study Workspace
+        </footer>
+      )}
       <RouteLoadingOverlay show={!loaded || decisionPending || isRouterLoading} />
       <OnboardingDebugPanel />
       <CommandPalette />
@@ -525,14 +532,14 @@ function AvailabilityAndStatus({ online }: { online: boolean }) {
   return (
     <div className="hidden shrink-0 items-center gap-3 sm:flex">
       <label
-        className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-[#888]"
+        className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-muted-foreground"
         style={{ letterSpacing: "0.06em" }}
       >
         <span className="hidden lg:inline">Show</span>
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value as AvailabilityFilter)}
-          className="h-7 cursor-pointer border border-[#e5e5e5] bg-white px-1.5 text-[10px] font-bold uppercase text-[#111] hover:border-[#111] focus:outline-none"
+          className="h-7 cursor-pointer border border-border bg-background px-1.5 text-[10px] font-bold uppercase text-foreground hover:border-foreground focus:outline-none"
           style={{ letterSpacing: "0.06em", borderRadius: "3px" }}
           title="Filter content by availability"
         >
@@ -542,7 +549,7 @@ function AvailabilityAndStatus({ online }: { online: boolean }) {
         </select>
       </label>
       <div
-        className="flex items-center gap-2 text-[10px] font-bold uppercase text-[#888]"
+        className="flex items-center gap-2 text-[10px] font-bold uppercase text-muted-foreground"
         style={{ letterSpacing: "0.06em" }}
       >
         <span

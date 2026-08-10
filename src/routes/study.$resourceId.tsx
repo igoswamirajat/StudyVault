@@ -399,11 +399,11 @@ function StudyRoom() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-48px)] w-full overflow-hidden">
+    <div className="flex h-full min-h-0 w-full overflow-hidden">
       {/* Left: day list */}
       <aside
         style={{ width: queueSize.size }}
-        className="hidden shrink-0 border-r border-border bg-surface-1/40 lg:flex lg:flex-col"
+        className="hidden min-h-0 shrink-0 border-r border-border bg-surface-1/40 lg:flex lg:flex-col"
       >
         <div className="border-b border-border p-3">
           <p className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -416,7 +416,7 @@ function StudyRoom() {
             {playlist ? " · Playlist" : ""}
           </p>
         </div>
-        <div className="flex-1 overflow-y-auto p-2">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
           {dayList.map((r, i) => (
             <Link
               key={r.id}
@@ -583,7 +583,7 @@ function StudyRoom() {
           <ResizeHandle side="right" onMouseDown={notesSize.startDrag} />
           <aside
             style={{ width: notesSize.size }}
-            className="hidden shrink-0 border-l border-border bg-surface-1/40 xl:flex xl:flex-col"
+            className="hidden min-h-0 shrink-0 border-l border-border bg-surface-1/40 xl:flex xl:flex-col"
           >
             <NotesPanel
               resource={resource}

@@ -78,7 +78,7 @@ function NotebooksPage() {
 
   if (!selected) {
     return (
-      <div className="flex min-h-[calc(100vh-48px)] items-center justify-center p-6">
+      <div className="flex min-h-full items-center justify-center p-6">
         <div className="max-w-md text-center">
           <Code2 className="mx-auto mb-3 size-10 text-primary" />
           <h1 className="text-2xl font-black uppercase tracking-tight">Practice notebooks</h1>
@@ -94,7 +94,7 @@ function NotebooksPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-48px)]">
+    <div className="flex h-full">
       <aside
         style={{ width: sidebar.size }}
         className="flex min-h-0 shrink-0 flex-col border-r border-border bg-surface-1/40"
@@ -105,7 +105,7 @@ function NotebooksPage() {
           </p>
           <NewContentMenu variant="ghost" size="icon" label="" />
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
           {notebooks.map((notebook) => (
             <button
               key={notebook.id}
@@ -124,7 +124,7 @@ function NotebooksPage() {
 
       <ResizeHandle side="left" onMouseDown={sidebar.startDrag} />
 
-      <main className="min-h-0 overflow-y-auto">
+      <main className="min-h-0 overflow-y-auto overscroll-contain">
         <div className="mx-auto max-w-4xl space-y-5 p-4 sm:p-8">
           <header className="flex flex-col gap-3 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
@@ -247,7 +247,10 @@ function NotebookCellEditor({
   }
 
   return (
-    <section className="overflow-hidden border border-border bg-surface-1 shadow-[3px_3px_0_var(--border)]">
+    <section
+      className="flex flex-col overflow-hidden border border-border bg-surface-1 shadow-[3px_3px_0_var(--border)]"
+      style={{ maxHeight: "24rem" }}
+    >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
           {index + 1} · {cell.type}
@@ -281,20 +284,24 @@ function NotebookCellEditor({
           </span>
         </div>
       )}
-      {preview && cell.type === "markdown" ? (
-        <MarkdownRenderer markdown={source} className="min-h-24 px-4 py-3" />
-      ) : (
-        <textarea
-          value={source}
-          onChange={(event) => setSource(event.target.value)}
-          onBlur={() => void saveSource()}
-          className={`min-h-32 w-full resize-y border-0 bg-background px-4 py-3 outline-none ${cell.type === "code" ? "font-mono text-sm" : "text-sm"}`}
-          placeholder={cell.type === "code" ? "Write code…" : "Write Markdown…"}
-        />
-      )}
-      {cell.type === "code" && cell.output && (
-        <NotebookCellOutput output={cell.output} status={cell.status} />
-      )}
+      <div className="flex-1 overflow-y-auto overscroll-contain min-h-0">
+        {preview && cell.type === "markdown" ? (
+          <MarkdownRenderer markdown={source} className="min-h-24 px-4 py-3" />
+        ) : (
+          <textarea
+            value={source}
+            onChange={(event) => setSource(event.target.value)}
+            onBlur={() => void saveSource()}
+            className={`h-full min-h-24 w-full resize-none border-0 bg-background px-4 py-3 outline-none ${cell.type === "code" ? "font-mono text-sm" : "text-sm"}`}
+            placeholder={cell.type === "code" ? "Write code…" : "Write Markdown…"}
+          />
+        )}
+        {cell.type === "code" && cell.output && (
+          <div className="border-t border-border overflow-y-auto overscroll-contain max-h-48">
+            <NotebookCellOutput output={cell.output} status={cell.status} />
+          </div>
+        )}
+      </div>
     </section>
   );
 }

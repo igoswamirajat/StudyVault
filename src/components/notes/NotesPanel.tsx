@@ -284,8 +284,8 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="flex flex-1 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="flex min-h-0 flex-1 flex-col">
         <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
           <TabsList className="h-8 flex-1 bg-transparent justify-start">
             <TabsTrigger value="summary" className="gap-1 text-xs" disabled={!resource}>
