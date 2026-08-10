@@ -7,16 +7,17 @@ import {
   type NotebookKernel,
 } from "@/db/schema";
 import { saveAs } from "file-saver";
-import { kernelLabel } from "@/services/kernelService";
+import { kernelLabel, runPyodideCell, runHtml, runSql, runBrowserJavascript } from "@/services/kernelService";
 
 export async function createNotebook(
   title = "Untitled notebook",
   resourceId: string | null = null,
   kernel?: NotebookKernel,
   language?: string,
+  linkedTimestamp: number | null = null,
 ) {
   const now = Date.now();
-  const kernelType: NotebookKernel = kernel ?? "browser";
+  const kernelType: NotebookKernel = kernel ?? (resourceId ? "pyodide" : "browser");
   const notebook: Notebook = {
     id: nanoid(),
     title,
@@ -25,6 +26,7 @@ export async function createNotebook(
     language: language ?? (kernelType === "pyodide" ? "python" : "javascript"),
     runtimePath: null,
     runtimeInstalled: false,
+    linkedTimestamp,
     createdAt: now,
     updatedAt: now,
   };
@@ -50,6 +52,7 @@ export async function addNotebookCell(
   type: NotebookCellType,
   source = "",
   language?: string,
+  linkedTimestamp: number | null = null,
 ) {
   const db = getDb();
   const cells = await db.notebook_cells.where("notebookId").equals(notebookId).toArray();
@@ -66,6 +69,7 @@ export async function addNotebookCell(
     output: "",
     status: "idle",
     executionCount: null,
+    linkedTimestamp,
     createdAt: now,
     updatedAt: now,
   };
@@ -102,48 +106,40 @@ export async function deleteNotebookCell(cellId: string) {
   });
 }
 
-export async function runBrowserJavascript(cell: NotebookCell): Promise<string> {
-  if (cell.language !== "javascript" && cell.language !== "js") {
+export async function runCell(cell: NotebookCell, kernel?: NotebookKernel): Promise<string> {
+  const lang = cell.language?.toLowerCase() ?? "";
+
+  // Cell language is authoritative — the per-cell picker must always win.
+  // A cell set to Python runs Pyodide even inside a browser-kernel notebook,
+  // and a cell set to JavaScript runs the worker even inside a pyodide notebook.
+  if (lang === "python" || lang === "py") {
+    return runPyodideCell(cell);
+  }
+  if (lang === "html") {
+    return runHtml(cell);
+  }
+  if (lang === "sql") {
+    return runSql(cell);
+  }
+
+  // Languages that can't run in the browser — show clear error.
+  if (lang === "c" || lang === "cpp" || lang === "rust" || lang === "go" || lang === "r") {
     throw new Error(
-      "Browser kernel currently runs JavaScript cells. Connect Jupyter for Python, R, or other languages.",
+      `"${cell.language}" can't run in the browser. ` +
+        `Supported in-browser: JavaScript, Python, SQL, HTML.`,
     );
   }
-  const workerSource = `
-    self.onmessage = (event) => {
-      const logs = [];
-      const original = console.log;
-      console.log = (...args) => logs.push(args.map(String).join(" "));
-      try {
-        const result = eval(event.data);
-        if (result !== undefined) logs.push(String(result));
-        self.postMessage({ ok: true, output: logs.join("\\n") || "(no output)" });
-      } catch (error) {
-        self.postMessage({ ok: false, output: error instanceof Error ? error.message : String(error) });
-      } finally {
-        console.log = original;
-      }
-    };
-  `;
-  const url = URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" }));
-  const worker = new Worker(url);
-  return await new Promise<string>((resolve, reject) => {
-    const timer = window.setTimeout(() => {
-      worker.terminate();
-      reject(new Error("Cell execution timed out after 5 seconds."));
-    }, 5000);
-    worker.onmessage = (event: MessageEvent<{ ok: boolean; output: string }>) => {
-      window.clearTimeout(timer);
-      worker.terminate();
-      if (event.data.ok) resolve(event.data.output);
-      else reject(new Error(event.data.output));
-    };
-    worker.onerror = (event) => {
-      window.clearTimeout(timer);
-      worker.terminate();
-      reject(new Error(event.message || "Cell execution failed."));
-    };
-    worker.postMessage(cell.source);
-  }).finally(() => URL.revokeObjectURL(url));
+
+  // No explicit language (or js/ts/unknown) — fall back to the kernel default.
+  if (kernel === "pyodide") {
+    return runPyodideCell({ ...cell, language: "python" });
+  }
+  if (kernel === "html") {
+    return runHtml(cell);
+  }
+
+  // browser kernel, or js/ts — run the JS worker.
+  return runBrowserJavascript(cell);
 }
 
 export function notebookKernelLabel(kernel: NotebookKernel): string {
@@ -173,10 +169,10 @@ export async function exportNotebookIpynb(notebookId: string): Promise<void> {
     metadata: {
       kernelspec: {
         display_name: notebookKernelLabel(notebook.kernel),
-        language: "javascript",
+        language: notebook.language || "javascript",
         name: notebook.kernel,
       },
-      language_info: { name: "javascript" },
+      language_info: { name: notebook.language || "javascript" },
     },
     nbformat: 4,
     nbformat_minor: 5,

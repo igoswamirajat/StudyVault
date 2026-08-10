@@ -104,6 +104,15 @@ function normalizeAiError(operation: string, error: unknown): Error {
     message = "AI API key was rejected. Check your key and model access in Settings → AI.";
   } else if (status === 404 || lower.includes("model not found") || lower.includes("not_found")) {
     message = "AI model or endpoint was not found. Check Endpoint URL and Model in Settings → AI.";
+  } else if (
+    lower.includes("cannot read") ||
+    lower.includes("does not support image") ||
+    lower.includes("does not support vision") ||
+    lower.includes("unsupported image") ||
+    lower.includes("multimodal")
+  ) {
+    message =
+      "Your AI model rejected the attached image. Switch to a native Gemini provider in Settings → AI for image and video understanding.";
   }
 
   const requestId =
@@ -123,7 +132,7 @@ function normalizeAiError(operation: string, error: unknown): Error {
 }
 
 async function executeAi<T>(operation: string, fn: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await fn();
     } catch (error) {
@@ -132,7 +141,14 @@ async function executeAi<T>(operation: string, fn: () => Promise<T>): Promise<T>
         details.statusCode === 429 ||
         (details.statusCode != null && details.statusCode >= 500) ||
         /timeout|timed out|fetch failed|network/i.test(details.message);
-      if (attempt === 0 && retryable) {
+      const noVisionSupport =
+        /cannot read|does not support (image|vision|multimodal|visual)/i.test(details.message) ||
+        /model.*(does not support|unsupported).*image/i.test(details.message);
+      if (attempt === 0 && (retryable || noVisionSupport)) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        continue;
+      }
+      if (attempt === 1 && noVisionSupport) {
         await new Promise((resolve) => setTimeout(resolve, 400));
         continue;
       }
@@ -194,9 +210,11 @@ function buildUserMessage(text: string, images?: string[], videoDataUrl?: string
 }
 
 function supportsVisualInput(provider?: string, model?: string): boolean {
-  if (provider === "gemini") return true;
-  const name = (model ?? "").toLowerCase();
-  return /gpt-4o|gpt-4\.1|vision|[-_]vl\b|llava|claude-3|claude-4|gemini/.test(name);
+  // Hard gate: only the native Gemini provider reliably accepts image parts.
+  // Model-name heuristics false-positive on proxies/OpenRouter ("vision"
+  // named models that still reject images) — the resulting provider error
+  // kills generation. OpenAI-compatible endpoints stay text-only.
+  return provider === "gemini";
 }
 
 function allowedMedia(
@@ -205,7 +223,14 @@ function allowedMedia(
   images?: string[],
   videoDataUrl?: string,
 ) {
-  return supportsVisualInput(provider, model) ? { images, videoDataUrl } : {};
+  const hasImages = Boolean(images?.length);
+  const hasVideo = Boolean(videoDataUrl);
+  if (!hasImages && !hasVideo) return {};
+  if (!supportsVisualInput(provider, model)) {
+    console.warn(`[AI] Provider/model ${provider}/${model} does not support vision, stripping media`);
+    return {};
+  }
+  return { images, videoDataUrl };
 }
 
 const QuizSchema = z.object({
@@ -318,6 +343,127 @@ export const generateSummaryAI = createServerFn({ method: "POST" })
         messages: buildUserMessage(text, media.images, media.videoDataUrl),
       });
       return { summary: out };
+    }),
+  );
+
+/* ------------------------------------------------- Learning Journey --- */
+
+const JourneyInput = z.object({
+  resources: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      type: z.string(),
+      folderPath: z.string().optional(),
+    }),
+  ),
+  notes: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      isSummary: z.boolean().optional(),
+      resourceId: z.string().optional(),
+    }),
+  ),
+  folders: z.array(
+    z.object({
+      path: z.string(),
+      name: z.string(),
+    }),
+  ),
+  progress: z.record(z.string(), z.string()).optional(),
+  provider: z.string().optional(),
+  endpoint: z.string().optional(),
+  apiKey: z.string().optional(),
+  model: z.string().optional(),
+});
+
+const JourneyPhase = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  order: z.number(),
+  resources: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      status: z.enum(["locked", "available", "in-progress", "completed"]),
+      reason: z.string().optional(),
+    }),
+  ),
+});
+
+const JourneyOutput = z.object({
+  phases: z.array(JourneyPhase),
+  startingPoint: z.string().optional(),
+  reasoning: z.string(),
+});
+
+export const generateLearningJourneyAI = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => JourneyInput.parse(data))
+  .handler(async ({ data }) =>
+    executeAi("learning-journey", async () => {
+      const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
+      const progress = data.progress ?? {};
+
+      const resourcesList = data.resources
+        .map(
+          (r) =>
+            `${r.id}: ${r.name} (${r.type}${r.folderPath ? `, folder: ${r.folderPath}` : ""})${progress[r.id] ? `, progress: ${progress[r.id]}` : ""}`,
+        )
+        .join("\n");
+
+      const notesList = data.notes
+        .map(
+          (n) =>
+            `${n.id}: ${n.title} (${n.isSummary ? "summary" : "note"}${n.resourceId ? ` → ${n.resourceId}` : ""})`,
+        )
+        .join("\n");
+
+      const foldersList = data.folders
+        .map((f) => `${f.path}: ${f.name}`)
+        .join("\n");
+
+      const prompt = `
+You are designing a personalized learning curriculum for a student. Given their resources, notes, and current progress, create a structured learning journey with clear phases.
+
+Resources:
+${resourcesList || "(none)"}
+
+Notes & Summaries:
+${notesList || "(none)"}
+
+Folders:
+${foldersList || "(none)"}
+
+Current Progress:
+${Object.entries(progress)
+  .map(([k, v]) => `${k}: ${v}`)
+  .join("\n") || "(no progress recorded)"}
+
+Create a learning journey with 3-6 phases. Each phase should have:
+1. A clear title (e.g., "Phase 1: Foundations", "Phase 2: Core Concepts", "Phase 3: Advanced Applications")
+2. A brief description of what the phase covers
+3. A list of specific resources assigned to that phase
+4. For each resource: status (locked/available/in-progress/completed) based on progress and prerequisites
+
+Rules:
+- Order phases logically: fundamentals → core concepts → practice → advanced → synthesis
+- Respect folder structure as implicit grouping (items in same folder = same topic)
+- If resource A is a prerequisite for B (e.g., "Part 1" before "Part 2", or "Basics" before "Advanced"), enforce order
+- Mark resources as "completed" if progress shows completed, "in-progress" if started, "available" if unlocked but not started, "locked" if prerequisites not met
+- Provide a short reasoning for the journey design
+`;
+
+      const { object } = await generateObject({
+        model,
+        maxOutputTokens: 2000,
+        schema: JourneyOutput,
+        system:
+          "You design personalized learning curriculums. Return a structured journey with ordered phases and clear resource statuses. Be specific about prerequisites and progression logic.",
+        prompt,
+      });
+      return object;
     }),
   );
 

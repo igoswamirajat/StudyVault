@@ -172,12 +172,22 @@ function NotesPage() {
             </div>
           </>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
-            <FileText className="mb-3 size-10" />
-            <p className="mb-3 text-sm">Select a note or create a new one.</p>
-            <Button onClick={handleNew}>
-              <Plus className="mr-1 size-4" /> New note
-            </Button>
+          <div className="flex h-full items-center justify-center p-8">
+            <div className="w-full max-w-sm rounded-xl border border-dashed border-border bg-surface-1/50 px-8 py-12 text-center shadow-[4px_4px_0_var(--border)]">
+              <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <FileText className="size-7" />
+              </div>
+              <p className="text-base font-semibold text-foreground">No note selected</p>
+              <p className="mx-auto mt-1.5 max-w-[240px] text-sm text-muted-foreground">
+                Pick a note from the sidebar, or create a fresh one to start writing.
+              </p>
+              <Button className="mt-5" onClick={handleNew}>
+                <Plus className="mr-1.5 size-4" /> New note
+              </Button>
+              <p className="mt-4 text-[10px] uppercase tracking-widest text-muted-foreground/70">
+                Notes autosave as you type
+              </p>
+            </div>
           </div>
         )}
       </main>

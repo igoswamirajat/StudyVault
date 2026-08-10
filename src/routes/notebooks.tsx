@@ -10,22 +10,17 @@ import {
   Plus,
   Trash2,
   Pencil,
-  DownloadCloud,
-  RefreshCw,
+  Terminal,
 } from "lucide-react";
 import { ClientOnly } from "@/components/common/ClientOnly";
 import { NewContentMenu } from "@/components/common/NewContentMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useResizableSize, ResizeHandle } from "@/hooks/useResizableSize";
-import {
-  kernelStatus,
-  ensureRuntime,
-  kernelLabel,
-  runPyodideCell,
-  isBundledKernel,
-  kernelDownloadHint,
-} from "@/services/kernelService";
+import { kernelLabel } from "@/services/kernelService";
+import { LanguagePicker, type NotebookLanguage } from "@/components/notebooks/LanguagePicker";
+import { CodeCellLanguagePicker } from "@/components/notebooks/CodeCellLanguagePicker";
+import { NotebookCellOutput } from "@/components/notebooks/NotebookCellOutput";
 import { MarkdownRenderer } from "@/components/notes/MarkdownRenderer";
 import { getDb, type NotebookCell, type NotebookKernel } from "@/db/schema";
 import {
@@ -34,7 +29,7 @@ import {
   deleteNotebookCell,
   notebookKernelLabel,
   exportNotebookIpynb,
-  runBrowserJavascript,
+  runCell,
   updateNotebook,
   updateNotebookCell,
 } from "@/services/notebookService";
@@ -161,16 +156,13 @@ function NotebooksPage() {
                 <option value="browser">Browser JS</option>
                 <option value="pyodide">Python (Pyodide)</option>
                 <option value="html">HTML render</option>
-                <option value="jupyter">Local Jupyter</option>
-                <option value="kaggle">Kaggle notebook</option>
-                <option value="colab">Google Colab</option>
               </select>
             </label>
             <Button
               size="sm"
               variant="outline"
               onClick={() => void exportNotebookIpynb(selected.id)}
-              title="Export for Colab, Kaggle, or VS Code"
+              title="Export as .ipynb for VS Code, Jupyter, etc."
             >
               <Download className="mr-1.5 size-3.5" /> .ipynb
             </Button>
@@ -194,9 +186,7 @@ function NotebooksPage() {
             <Button variant="outline" onClick={() => void addNotebookCell(selected.id, "markdown")}>
               <FileCode2 className="mr-2 size-4" /> Markdown cell
             </Button>
-            <Button variant="outline" onClick={() => void addNotebookCell(selected.id, "code")}>
-              <Code2 className="mr-2 size-4" /> Code cell
-            </Button>
+            <CodeCellLanguagePicker notebookId={selected.id} defaultLang={selected.language as NotebookLanguage} />
           </div>
         </div>
       </main>
@@ -204,78 +194,11 @@ function NotebooksPage() {
   );
 }
 
-function KernelStatusBar({ kernel, notebookId }: { kernel: NotebookKernel; notebookId: string }) {
-  const [info, setInfo] = useState<{ ready: boolean; reason?: string; location?: string } | null>(
-    null,
-  );
-  const [installing, setInstalling] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    void kernelStatus(kernel).then((s) => {
-      if (active) setInfo({ ready: s.ready, reason: s.reason, location: s.runtime?.location });
-    });
-    return () => {
-      active = false;
-    };
-  }, [kernel]);
-
-  async function install() {
-    setInstalling(true);
-    try {
-      const runtime = await ensureRuntime(kernel);
-      await updateNotebook(notebookId, {
-        runtimePath: runtime.location ?? null,
-        runtimeInstalled: true,
-      });
-      setInfo({ ready: true, location: runtime.location });
-      toast.success(`${kernelLabel(kernel)} runtime ready`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Runtime setup failed");
-    } finally {
-      setInstalling(false);
-    }
-  }
-
-  if (isBundledKernel(kernel)) {
-    return (
-      <div className="border border-border bg-surface-1 p-2.5 text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">{kernelLabel(kernel)}</span> runs in your
-        browser — no setup needed.
-      </div>
-    );
-  }
-
-  const hint = kernelDownloadHint(kernel);
-  const ready = info?.ready;
+function KernelStatusBar({ kernel }: { kernel: NotebookKernel; notebookId: string }) {
   return (
     <div className="border border-border bg-surface-1 p-2.5 text-xs text-muted-foreground">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <RefreshCw className="size-3.5" />
-          <span>
-            <span className="font-medium text-foreground">{kernelLabel(kernel)}</span>
-            {hint ? ` · ${hint}` : ""}
-          </span>
-          <span className={ready ? "text-success" : "text-destructive"}>
-            {ready ? "ready" : "not configured"}
-          </span>
-        </div>
-        {!ready && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7"
-            disabled={installing}
-            onClick={() => void install()}
-          >
-            <DownloadCloud className="mr-1 size-3.5" />
-            {installing ? "Loading…" : "Install runtime"}
-          </Button>
-        )}
-      </div>
-      {info?.reason && !ready && <p className="mt-1">{info.reason}</p>}
-      {info?.location && ready && <p className="mt-1 truncate font-mono">{info.location}</p>}
+      <span className="font-medium text-foreground">{kernelLabel(kernel)}</span> runs in your
+      browser — no setup needed.
     </div>
   );
 }
@@ -305,21 +228,19 @@ function NotebookCellEditor({
     setRunning(true);
     await updateNotebookCell(cell.id, { status: "running", source });
     try {
-      const output =
-        kernel === "pyodide"
-          ? await runPyodideCell({ ...cell, source })
-          : await runBrowserJavascript({ ...cell, source });
+      const output = await runCell({ ...cell, source }, kernel);
       await updateNotebookCell(cell.id, {
         output,
         status: "success",
         executionCount: (cell.executionCount ?? 0) + 1,
       });
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
       await updateNotebookCell(cell.id, {
-        output: error instanceof Error ? error.message : String(error),
+        output: msg,
         status: "error",
       });
-      toast.error(error instanceof Error ? error.message : "Cell failed");
+      toast.error(msg.includes("Pyodide failed") ? "Python runtime not ready — please wait a moment" : "Cell failed");
     } finally {
       setRunning(false);
     }
@@ -351,24 +272,10 @@ function NotebookCellEditor({
       </div>
       {cell.type === "code" && (
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
-          <select
-            value={cell.language}
-            onChange={(event) => void updateNotebookCell(cell.id, { language: event.target.value })}
-            className="h-7 border border-input bg-background px-2 font-mono text-[11px]"
-          >
-            {kernel === "pyodide" ? (
-              <>
-                <option value="python">Python</option>
-              </>
-            ) : (
-              <>
-                <option value="javascript">JavaScript</option>
-                <option value="python">Python</option>
-                <option value="r">R</option>
-                <option value="sql">SQL</option>
-              </>
-            )}
-          </select>
+          <LanguagePicker
+            value={cell.language as NotebookLanguage}
+            onChange={(lang) => void updateNotebookCell(cell.id, { language: lang })}
+          />
           <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
             {kernelLabel(kernel)}
           </span>
@@ -386,11 +293,7 @@ function NotebookCellEditor({
         />
       )}
       {cell.type === "code" && cell.output && (
-        <pre
-          className={`border-t border-border whitespace-pre-wrap px-4 py-3 font-mono text-xs ${cell.status === "error" ? "text-destructive" : "text-muted-foreground"}`}
-        >
-          {cell.output}
-        </pre>
+        <NotebookCellOutput output={cell.output} status={cell.status} />
       )}
     </section>
   );

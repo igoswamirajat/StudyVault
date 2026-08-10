@@ -1,6 +1,6 @@
 import { getDb, type Quiz, type Resource } from "@/db/schema";
 import { aiGenerateQuiz } from "./aiService";
-import { buildResourceContext, gatherResourceMedia } from "./aiContext";
+import { buildResourceContext } from "./aiContext";
 
 const FALLBACK = [
   {
@@ -24,11 +24,12 @@ export async function generateQuizForResource(
     maxChars: 8000,
     includeSiblings: false,
   });
-  const media = await gatherResourceMedia(resource);
   let questions: Quiz["questions"];
   let source: "ai" | "manual" = "ai";
   try {
-    const result = await aiGenerateQuiz(resource.name, context, resource.type, 5, media);
+    // Text-only: no media passed — vision models add no value for quiz generation
+    // and non-vision models error with "cannot read image".
+    const result = await aiGenerateQuiz(resource.name, context, resource.type, 5);
     questions = result.questions;
   } catch (err) {
     console.warn("AI quiz failed, using fallback", err);

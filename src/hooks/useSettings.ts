@@ -8,9 +8,15 @@ export function useSettings() {
 
   const refresh = useCallback(async () => {
     if (typeof window === "undefined") return;
-    const all = await getAllSettings();
-    setSettings(all);
-    setLoaded(true);
+    try {
+      const all = await getAllSettings();
+      setSettings(all);
+    } catch (e) {
+      console.error("[Settings] Failed to load settings, using defaults", e);
+      setSettings(DEFAULT_SETTINGS);
+    } finally {
+      setLoaded(true);
+    }
   }, []);
 
   useEffect(() => {

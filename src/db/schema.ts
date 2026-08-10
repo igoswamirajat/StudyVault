@@ -189,7 +189,7 @@ export interface YoutubePlaylist {
 }
 
 export type NotebookCellType = "markdown" | "code";
-export type NotebookKernel = "browser" | "pyodide" | "html" | "jupyter" | "kaggle" | "colab";
+export type NotebookKernel = "browser" | "pyodide" | "html";
 export type NotebookCellStatus = "idle" | "running" | "success" | "error";
 
 export interface Notebook {
@@ -203,6 +203,8 @@ export interface Notebook {
   runtimePath?: string | null;
   /** True once the runtime was verified/installed for this notebook. */
   runtimeInstalled?: boolean;
+  /** Video position (seconds) when this notebook was created from Study Room. */
+  linkedTimestamp: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -217,6 +219,8 @@ export interface NotebookCell {
   output: string;
   status: NotebookCellStatus;
   executionCount: number | null;
+  /** Video position (seconds) when this cell was added from Study Room. */
+  linkedTimestamp: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -314,6 +318,19 @@ export class StudyVaultDB extends Dexie {
       notebooks: "id, resourceId, kernel, createdAt, updatedAt",
       notebook_cells: "id, notebookId, orderIndex, type, updatedAt",
     });
+    this.version(12)
+      .stores({
+        notebooks: "id, resourceId, kernel, linkedTimestamp, createdAt, updatedAt",
+        notebook_cells: "id, notebookId, orderIndex, type, linkedTimestamp, updatedAt",
+      })
+      .upgrade(async (tx) => {
+        await tx.table("notebooks").toCollection().modify((n: Notebook) => {
+          if (n.linkedTimestamp === undefined) n.linkedTimestamp = null;
+        });
+        await tx.table("notebook_cells").toCollection().modify((c: NotebookCell) => {
+          if (c.linkedTimestamp === undefined) c.linkedTimestamp = null;
+        });
+      });
   }
 }
 

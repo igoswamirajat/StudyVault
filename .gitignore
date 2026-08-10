@@ -34,3 +34,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Pyodide runtime (bundled locally, ~13MB)
+public/pyodide/
+public/pyodide/*
+!public/pyodide/.gitkeep

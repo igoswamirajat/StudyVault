@@ -27,7 +27,12 @@ import {
   appendHighlightToSummary,
   findBacklinks,
 } from "@/services/notesService";
-import { aiGenerateSummary, aiGenerateAutoNote, isAiConfigured } from "@/services/aiService";
+import {
+  aiGenerateSummary,
+  aiGenerateAutoNote,
+  isAiConfigured,
+  aiCanSendMedia,
+} from "@/services/aiService";
 import { buildResourceContext, gatherResourceMedia } from "@/services/aiContext";
 import { formatDistanceToNow } from "date-fns";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -226,7 +231,7 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
         includeSiblings: false,
         includeUserSummary: false,
       });
-      const media = await gatherResourceMedia(resource);
+      const media = (await aiCanSendMedia()) ? await gatherResourceMedia(resource) : {};
       const result = await aiGenerateSummary(resource.name, context, media);
       const ed = editorRef.current;
       if (ed) {
@@ -253,7 +258,7 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
         maxChars: 10000,
         includeSiblings: false,
       });
-      const media = await gatherResourceMedia(resource);
+      const media = (await aiCanSendMedia()) ? await gatherResourceMedia(resource) : {};
       const result = await aiGenerateAutoNote(resource.name, context, resource.type, media);
       const n = await createNote({
         resourceId: resourceId,
@@ -281,8 +286,8 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
   return (
     <div className="flex h-full flex-col">
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="flex flex-1 flex-col">
-        <div className="flex items-center justify-between border-b border-border px-2 py-1.5">
-          <TabsList className="h-8 bg-transparent">
+        <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+          <TabsList className="h-8 flex-1 bg-transparent justify-start">
             <TabsTrigger value="summary" className="gap-1 text-xs" disabled={!resource}>
               <Sparkles className="size-3" /> Summary
             </TabsTrigger>
@@ -300,7 +305,7 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
             </TabsTrigger>
           </TabsList>
           {tab !== "summary" && (
-            <Button size="sm" variant="ghost" onClick={handleNew}>
+            <Button size="sm" variant="ghost" className="ml-auto shrink-0 h-7 w-7 p-0" onClick={handleNew}>
               <Plus className="size-3.5" />
             </Button>
           )}
@@ -531,7 +536,12 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
             value="notebook"
             className="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
           >
-            <NotebookEmbed resourceId={resourceId} resourceName={resource?.name} />
+            <NotebookEmbed
+              resourceId={resourceId}
+              resourceName={resource?.name}
+              getVideoTime={getVideoTime}
+              onSeekVideo={onSeekVideo}
+            />
           </TabsContent>
         )}
       </Tabs>

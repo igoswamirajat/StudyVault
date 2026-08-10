@@ -7,6 +7,7 @@ import {
   suggestSortOrderAI,
   answerDoubtAI,
   studyAssistantAI,
+  generateLearningJourneyAI,
 } from "@/lib/ai.functions";
 
 /** A single turn in a doubt/assistant conversation. */
@@ -139,8 +140,19 @@ export interface AiMedia {
 }
 
 export function supportsAiVision(provider: string, model: string): boolean {
-  if (provider === "gemini") return true;
-  return /gpt-4o|gpt-4\.1|vision|[-_]vl\b|llava|claude-3|claude-4|gemini/i.test(model);
+  // Hard gate: only the native Gemini provider reliably accepts image parts.
+  // OpenAI-compatible model names are unreliable signals — many "vision"
+  // named models on proxies/OpenRouter reject image input, and the provider
+  // error ("Cannot read image.png") is fatal to generation. Text-only for all
+  // OpenAI-compatible endpoints, always.
+  return provider === "gemini";
+}
+
+/** True when the configured provider can accept images — callers can then
+ *  skip expensive frame sampling entirely. */
+export async function aiCanSendMedia(): Promise<boolean> {
+  const { provider } = await getAiConfig();
+  return supportsAiVision(provider, "");
 }
 
 function prepareMedia(provider: string, model: string, media?: AiMedia): AiMedia {
@@ -353,4 +365,71 @@ export async function aiStudyAssistant(
 export async function isAiConfigured(): Promise<boolean> {
   const { endpoint, apiKey } = await getAiConfig();
   return Boolean(endpoint && apiKey);
+}
+
+export interface JourneyPhaseResource {
+  id: string;
+  title: string;
+  status: "locked" | "available" | "in-progress" | "completed";
+  reason?: string;
+}
+
+export interface JourneyPhase {
+  id: string;
+  title: string;
+  description: string;
+  order: number;
+  resources: JourneyPhaseResource[];
+}
+
+export interface LearningJourney {
+  phases: JourneyPhase[];
+  startingPoint?: string;
+  reasoning: string;
+}
+
+export async function aiGenerateLearningJourney(): Promise<LearningJourney> {
+  const db = getDb();
+  const { provider, endpoint, apiKey, model } = await getAiConfig();
+
+  const resources = await db.resources.toArray();
+  const notes = await db.notes.toArray();
+  const folders = await db.folders.toArray();
+  const progressEntries = await db.progress.toArray();
+  const progress: Record<string, string> = {};
+  for (const p of progressEntries) {
+    progress[p.resourceId] = p.status;
+  }
+
+  try {
+    return await callAi(() =>
+      generateLearningJourneyAI({
+        data: {
+          resources: resources.map((r) => ({
+            id: r.id,
+            name: r.name,
+            type: r.type,
+            folderPath: r.folderPath,
+          })),
+          notes: notes.map((n) => ({
+            id: n.id,
+            title: n.title,
+            isSummary: n.isSummary,
+            resourceId: n.resourceId,
+          })),
+          folders: folders.map((f) => ({
+            path: f.path,
+            name: f.name,
+          })),
+          progress,
+          provider,
+          endpoint,
+          apiKey,
+          model,
+        },
+      }),
+    );
+  } catch (e) {
+    throw describeAiError(e);
+  }
 }

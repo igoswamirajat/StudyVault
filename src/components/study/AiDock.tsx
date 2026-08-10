@@ -14,6 +14,7 @@ import {
   isAiConfigured,
   isMutatingAction,
   trimChatHistory,
+  aiCanSendMedia,
   type AssistantAction,
   type ChatTurn,
 } from "@/services/aiService";
@@ -103,7 +104,7 @@ export function AiDock({ resource, buildSessionContext, runAction }: AiDockProps
           });
           doubtContextRef.current = { resourceId: resource.id, value: context, at: Date.now() };
         }
-        const media = await gatherResourceMedia(resource);
+        const media = (await aiCanSendMedia()) ? await gatherResourceMedia(resource) : {};
         const { answer } = await aiAnswerDoubt(
           resource.name,
           context,

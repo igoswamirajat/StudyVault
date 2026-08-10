@@ -1,34 +1,17 @@
 import type { NotebookCell, NotebookKernel } from "@/db/schema";
-import { getSetting, setSetting } from "@/services/storageService";
 
 export interface KernelRuntimeInfo {
   installed: boolean;
-  /** Where the runtime lives. For pyodide this is the CDN index path we load from. */
   location?: string;
   version?: string;
 }
 
 const PYODIDE_VERSION = "0.26.4";
-const PYODIDE_CDN = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+const PYODIDE_BASE = "/pyodide";
 
-const SETTING_RUNTIME = "runtime:paths";
-
-type RuntimePathMap = Partial<Record<NotebookKernel, string>>;
-
-async function getRuntimePaths(): Promise<RuntimePathMap> {
-  const stored = await getSetting<RuntimePathMap | undefined>(SETTING_RUNTIME);
-  return stored ?? {};
-}
-
-/** Register a local runtime path (Electron / local launcher scenario). */
-export async function setRuntimePath(kernel: NotebookKernel, path: string): Promise<void> {
-  const paths = await getRuntimePaths();
-  await setSetting(SETTING_RUNTIME, { ...paths, [kernel]: path });
-}
-
-/** Is this kernel backed by a browser-native runtime (no download needed)? */
-export function isBundledKernel(kernel: NotebookKernel): boolean {
-  return kernel === "browser" || kernel === "html";
+/** All remaining kernels are browser-native — no setup needed. */
+export function isBundledKernel(_kernel: NotebookKernel): boolean {
+  return true;
 }
 
 /** Human label used in UI. */
@@ -37,162 +20,197 @@ export function kernelLabel(kernel: NotebookKernel): string {
     browser: "Browser JS",
     pyodide: "Python (Pyodide)",
     html: "HTML render",
-    jupyter: "Local Jupyter",
-    kaggle: "Kaggle",
-    colab: "Google Colab",
   }[kernel];
 }
 
-/** Rough size hint for the download prompt. */
-export function kernelDownloadHint(kernel: NotebookKernel): string | null {
-  if (kernel === "pyodide") return "Pyodide (~7 MB WASM)";
-  return null;
-}
+export { PYODIDE_BASE, PYODIDE_VERSION };
 
-/**
- * Kernel readiness.
- * - browser/html: always ready.
- * - pyodide: download-on-first-run (browser), persisted runtime path optional.
- * - jupyter/kaggle/colab: external, user-configured.
- */
-export async function kernelStatus(
-  kernel: NotebookKernel,
-): Promise<{ ready: boolean; reason?: string; runtime?: KernelRuntimeInfo }> {
-  if (kernel === "browser" || kernel === "html") {
-    return { ready: true, runtime: { installed: true } };
-  }
-  if (kernel === "pyodide") {
-    const paths = await getRuntimePaths();
-    const location = paths.pyodide ?? PYODIDE_CDN;
-    return {
-      ready: true,
-      runtime: {
-        installed: true,
-        location,
-        version: PYODIDE_VERSION,
-      },
-    };
-  }
-  const paths = await getRuntimePaths();
-  const location = paths[kernel];
-  return {
-    ready: Boolean(location),
-    reason: location
-      ? "Runtime path configured."
-      : `${kernelLabel(kernel)} is not configured. Add a runtime path or use a bundled kernel.`,
-    runtime: { installed: Boolean(location), location },
-  };
-}
-
-/** Download/install a runtime. Pyodide is lazy-loaded; Jupyter-family returns instructions. */
-export async function ensureRuntime(kernel: NotebookKernel): Promise<KernelRuntimeInfo> {
-  const status = await kernelStatus(kernel);
-  if (status.ready && status.runtime) return status.runtime;
-
-  if (kernel === "pyodide") {
-    // Nothing to pre-download in the browser; the loader fetches on first import.
-    await setRuntimePath(kernel, PYODIDE_CDN);
-    return { installed: true, location: PYODIDE_CDN, version: PYODIDE_VERSION };
-  }
-
-  if (kernel === "jupyter") {
-    await setRuntimePath(kernel, "http://localhost:8888");
-    return { installed: true, location: "http://localhost:8888" };
-  }
-
-  throw new Error(
-    `${kernelLabel(kernel)} needs an external runtime. Connect it in Settings or use "Browser JS".`,
-  );
-}
-
-export { PYODIDE_CDN, PYODIDE_VERSION };
-
-/** Lazily load Pyodide once and cache the instance. Loaded from CDN via <script>, not bundled. */
+/** Pyodide runtime interface — loose to survive API differences across versions. */
 type PyodideType = {
   runPython: (code: string) => unknown;
   loadPackagesFromImports: (code: string) => Promise<void>;
-  setStdout: (cb: (text: string) => void) => void;
-  setStderr: (cb: (text: string) => void) => void;
+  globals: { set: (name: string, value: unknown) => void; get: (name: string) => unknown };
+  version?: () => string;
+  _module?: { version?: string };
+  [key: string]: unknown;
 };
 
 declare global {
   interface Window {
-    loadPyodide?: (options: { indexURL: string }) => Promise<PyodideType>;
+    /** eslint-disable-next-line @typescript-eslint/no-explicit-any */
+    loadPyodide?: (...args: any[]) => Promise<any>;
   }
 }
 
-let pyodidePromise: Promise<PyodideType | null> | null = null;
+let pyodideInstance: PyodideType | null = null;
+let pyodideLoading: Promise<PyodideType> | null = null;
 
-function loadPyodideScript(): Promise<PyodideType> {
-  return new Promise((resolve, reject) => {
-    if (window.loadPyodide) {
-      resolve(window.loadPyodide({ indexURL: PYODIDE_CDN }));
-      return;
-    }
-    const existing = document.getElementById("pyodide-loader-script");
-    if (existing) {
-      // Wait for in-flight load.
-      const handler = () => {
-        if (window.loadPyodide) {
-          cleanup();
-          resolve(window.loadPyodide({ indexURL: PYODIDE_CDN }));
-        }
-      };
-      const cleanup = () => {
-        existing.removeEventListener("load", handler);
-        existing.removeEventListener("error", onError);
-      };
-      const onError = () => {
-        cleanup();
-        reject(new Error("Pyodide script failed to load."));
-      };
-      existing.addEventListener("load", handler);
-      existing.addEventListener("error", onError);
-      return;
-    }
-    const script = document.createElement("script");
-    script.id = "pyodide-script";
-    script.src = `${PYODIDE_CDN}pyodide.js`;
-    script.onload = () => {
-      if (window.loadPyodide) resolve(window.loadPyodide({ indexURL: PYODIDE_CDN }));
-      else reject(new Error("Pyodide loaded but its API is missing."));
-    };
-    script.onerror = () => reject(new Error("Couldn't download the Pyodide runtime."));
-    document.head.appendChild(script);
-  });
+/** Safely read Pyodide version string — survives API changes. */
+function readPyodideVersion(p: PyodideType): string {
+  try {
+    if (typeof p.version === "function") return p.version();
+    if (typeof p.version === "string") return p.version;
+    if (p._module?.version) return String(p._module.version);
+  } catch { /* ignore */ }
+  return "unknown";
 }
 
-async function loadPyodideOnce(): Promise<PyodideType | null> {
-  if (pyodidePromise) return pyodidePromise;
-  pyodidePromise = loadPyodideScript().catch((error) => {
-    pyodidePromise = null;
+/**
+ * Load Pyodide from local bundled files.
+ */
+async function loadPyodideLocally(): Promise<PyodideType> {
+  // Case 1: Already loaded via <script> tag.
+  if (typeof window.loadPyodide === "function") {
+    return window.loadPyodide({
+      indexURL: PYODIDE_BASE + "/",
+      fullStdLib: false,
+    });
+  }
+
+  // Case 2: Fetch and inject the loader script.
+  const resp = await fetch(`${PYODIDE_BASE}/pyodide.js`);
+  if (!resp.ok) throw new Error(`Failed to load ${PYODIDE_BASE}/pyodide.js (${resp.status})`);
+
+  const js = await resp.text();
+  const script = document.createElement("script");
+  script.textContent = js;
+  document.head.appendChild(script);
+
+  try {
+    // Cast needed: TS narrows window.loadPyodide to undefined after Case 1 return.
+    const loader = (window as unknown as Record<string, unknown>)["loadPyodide"] as ((...a: unknown[]) => Promise<PyodideType>) | undefined;
+    if (typeof loader !== "function") {
+      throw new Error("pyodide.js loaded but loadPyodide() not found.");
+    }
+    return loader({
+      indexURL: PYODIDE_BASE + "/",
+      fullStdLib: false,
+    });
+  } finally {
+    document.head.removeChild(script);
+  }
+}
+
+/**
+ * Load Pyodide once and cache the singleton.
+ */
+export async function loadPyodideOnce(): Promise<PyodideType | null> {
+  if (pyodideInstance) return pyodideInstance;
+  if (pyodideLoading) return pyodideLoading;
+
+  pyodideLoading = loadPyodideLocally().then((instance) => {
+    pyodideInstance = instance;
+    return instance;
+  }).catch((error) => {
+    pyodideLoading = null;
+    pyodideInstance = null;
+    console.error("[Pyodide] Failed to initialize:", error);
     throw error;
+  }).finally(() => {
+    pyodideLoading = null;
   });
-  return pyodidePromise;
+
+  return pyodideLoading;
+}
+
+/** Clear the cached Pyodide instance (for testing or runtime switch). */
+export function resetPyodide() {
+  pyodideInstance = null;
+  pyodideLoading = null;
+}
+
+/** Check if Pyodide is loaded without triggering a load. */
+export function isPyodideReady(): boolean {
+  return pyodideInstance !== null;
 }
 
 /** Run a Python cell in Pyodide. Captures stdout/stderr. */
 export async function runPyodideCell(cell: NotebookCell): Promise<string> {
-  if (cell.language !== "python" && cell.language !== "py") {
-    throw new Error("The Python kernel runs .py / python cells.");
-  }
   const pyodide = await loadPyodideOnce();
-  if (!pyodide) throw new Error("Pyodide failed to initialize.");
-  await pyodide.loadPackagesFromImports(cell.source).catch(() => {
-    /* optional package install failure shouldn't kill the run */
-  });
-  const out: string[] = [];
-  pyodide.setStdout((text) => out.push(text));
-  pyodide.setStderr((text) => out.push(text));
-  try {
-    const result = await pyodide.runPython(cell.source);
-    if (result !== undefined && result !== null && result !== "") {
-      const stringified = String(result);
-      if (stringified && stringified !== "None") out.push(stringified);
-    }
-  } finally {
-    pyodide.setStdout?.(() => undefined);
-    pyodide.setStderr?.(() => undefined);
-  }
-  return out.length ? out.join("\n") : "(no output)";
+  if (!pyodide) throw new Error("Pyodide failed to initialize. Check browser console.");
+
+  // Allow automatic package installation from imports (slow on first call, cached after).
+  await pyodide.loadPackagesFromImports(cell.source).catch(() => {});
+
+  // Pass cell source as a global variable to avoid string escaping issues.
+  pyodide.globals.set("__cell_source", cell.source);
+
+  // Single-shot: setup capture → run code → read output → restore stdout.
+  // Returns stdout as plain string via last expression — no dict/Map conversion.
+  const result = await pyodide.runPython(`
+import sys, traceback
+from io import StringIO
+
+__buf_out = StringIO()
+__buf_err = StringIO()
+__old_out, __old_err = sys.stdout, sys.stderr
+sys.stdout, sys.stderr = __buf_out, __buf_err
+
+try:
+    exec(compile(__cell_source, "<cell>", "exec"), {"__builtins__": __builtins__})
+except BaseException as e:
+    traceback.print_exception(type(e), e, e.__traceback__, file=sys.stderr)
+
+sys.stdout, sys.stderr = __old_out, __old_err
+__out = __buf_out.getvalue()
+__err = __buf_err.getvalue()
+if __err:
+    __out = (__out + chr(10) + __err).strip()
+__out if __out else "(no output)"
+`) as string;
+
+  return typeof result === "string" && result.trim() ? result.trim() : "(no output)";
+}
+
+/** Run a JavaScript cell in a Web Worker. */
+export async function runBrowserJavascript(cell: NotebookCell): Promise<string> {
+  const workerSource = `
+    self.onmessage = (event) => {
+      const logs = [];
+      const original = console.log;
+      console.log = (...args) => logs.push(args.map(String).join(" "));
+      try {
+        const result = eval(event.data);
+        if (result !== undefined) logs.push(String(result));
+        self.postMessage({ ok: true, output: logs.join("\\n") || "(no output)" });
+      } catch (error) {
+        self.postMessage({ ok: false, output: error instanceof Error ? error.message : String(error) });
+      } finally {
+        console.log = original;
+      }
+    };
+  `;
+  const url = URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" }));
+  const worker = new Worker(url);
+  return await new Promise<string>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      worker.terminate();
+      reject(new Error("Cell execution timed out after 5 seconds."));
+    }, 5000);
+    worker.onmessage = (event: MessageEvent<{ ok: boolean; output: string }>) => {
+      window.clearTimeout(timer);
+      worker.terminate();
+      if (event.data.ok) resolve(event.data.output);
+      else reject(new Error(event.data.output));
+    };
+    worker.onerror = (event) => {
+      window.clearTimeout(timer);
+      worker.terminate();
+      reject(new Error(event.message || "Cell execution failed."));
+    };
+    worker.postMessage(cell.source);
+  }).finally(() => URL.revokeObjectURL(url));
+}
+
+/** Run an HTML cell — returns marker for iframe rendering. */
+export async function runHtml(cell: NotebookCell): Promise<string> {
+  return `HTML_RENDER:${cell.source}`;
+}
+
+/** Run SQL cell — not supported in browser. */
+export async function runSql(_cell: NotebookCell): Promise<string> {
+  throw new Error(
+    "SQL runs locally in the browser only when the SQLite engine is bundled. " +
+      "Use this cell to draft and save your query for review.",
+  );
 }
