@@ -48,6 +48,7 @@ import { getPlaylist, setPlaylist } from "@/lib/playlist";
 import { youtubeWatchUrl } from "@/services/youtubeParse";
 import { PomodoroWidget } from "@/components/study/PomodoroWidget";
 import { AiDock } from "@/components/study/AiDock";
+import { fetchAndCacheTranscript } from "@/services/youtubeTranscript.service";
 import type { AssistantAction } from "@/services/aiService";
 import { createFolder, moveResources } from "@/services/fileOpsService";
 import { generateQuizForResource } from "@/services/quizService";
@@ -184,6 +185,13 @@ function StudyRoom() {
       void getOrCreateProgress(resourceId);
     }
   }, [resourceId]);
+
+  // Lazy-fetch YouTube transcript if not already cached
+  useEffect(() => {
+    if (resource?.source === "youtube" && resource.youtubeVideoId) {
+      void fetchAndCacheTranscript(resourceId);
+    }
+  }, [resourceId, resource?.source, resource?.youtubeVideoId]);
 
   const goNext = useCallback(() => {
     if (next) navigate({ to: "/study/$resourceId", params: { resourceId: next.id } });

@@ -48,7 +48,7 @@ export async function buildResourceContext(
   }
   if (resource.transcriptText?.trim()) {
     lines.push(
-      `\nTranscript or source description:\n"""\n${resource.transcriptText.trim().slice(0, 5000)}\n"""`,
+      `\nTranscript or source description:\n"""\n${resource.transcriptText.trim().slice(0, 10_000)}\n"""`,
     );
   } else if (resource.source === "youtube") {
     lines.push(
