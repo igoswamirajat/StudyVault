@@ -68,6 +68,11 @@ function GraphPage() {
   const [journeyLoading, setJourneyLoading] = useState(false);
   const [aiAvailable, setAiAvailable] = useState(false);
 
+  // Pan / Zoom State
+  const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
+  const [isDragging, setIsDragging] = useState(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+
   useEffect(() => {
     const db = getDb();
     Promise.all([db.resources.toArray(), db.notes.toArray(), db.folders.toArray()]).then(
@@ -92,6 +97,47 @@ function GraphPage() {
     } finally {
       setJourneyLoading(false);
     }
+  }, []);
+
+  // Pan / Zoom Handlers
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    setTransform((prev) => {
+      const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1;
+      const k = Math.min(Math.max(prev.k * scaleFactor, 0.1), 4);
+      return { ...prev, k };
+    });
+  }, []);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0 && e.button !== 1) return; // Only left or middle click
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsDragging(true);
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  }, []);
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isDragging) return;
+      const dx = e.clientX - lastPos.current.x;
+      const dy = e.clientY - lastPos.current.y;
+      setTransform((prev) => ({
+        ...prev,
+        x: prev.x + dx,
+        y: prev.y + dy,
+      }));
+      lastPos.current = { x: e.clientX, y: e.clientY };
+    },
+    [isDragging],
+  );
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    setIsDragging(false);
+  }, []);
+
+  const handleResetView = useCallback(() => {
+    setTransform({ x: 0, y: 0, k: 1 });
   }, []);
 
   /* ── Graph build ── */
@@ -293,14 +339,31 @@ function GraphPage() {
             transition={{ duration: 0.2 }}
           >
             <Legend />
-            <div className="mt-3 overflow-hidden border border-border bg-surface-1 shadow-[6px_6px_0_var(--foreground)]">
+            <div className="relative mt-3 overflow-hidden border border-border bg-surface-1 shadow-[6px_6px_0_var(--foreground)]">
+              {(transform.x !== 0 || transform.y !== 0 || transform.k !== 1) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="absolute bottom-4 right-4 z-10 gap-1.5"
+                  onClick={handleResetView}
+                >
+                  Reset view
+                </Button>
+              )}
               <svg
                 ref={svgRef}
                 viewBox="0 0 1000 700"
-                className="block h-[70vh] w-full"
+                className="block h-[70vh] w-full touch-none select-none cursor-grab active:cursor-grabbing"
                 role="img"
                 aria-label="Knowledge graph of resources, notes, and folders"
+                onWheel={handleWheel}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerLeave={handlePointerUp}
               >
+                <g transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}>
+
                 {edges.map((e, i) => {
                   const a = positioned.find((n) => n.id === e.a);
                   const b = positioned.find((n) => n.id === e.b);
@@ -336,6 +399,7 @@ function GraphPage() {
                     </g>
                   );
                 })}
+                </g>
               </svg>
             </div>
             {nodes.length === 0 && (
@@ -398,14 +462,20 @@ function JourneyView({
 
       <div className="relative space-y-4">
         {/* Vertical line connector */}
-        <div className="absolute left-[22px] top-8 bottom-8 w-px bg-border" />
+        <motion.div
+          initial={{ scaleY: 0 }}
+          animate={{ scaleY: 1 }}
+          transition={{ duration: 1, ease: "easeOut" }}
+          style={{ transformOrigin: "top" }}
+          className="absolute left-[22px] top-8 bottom-8 w-px bg-border"
+        />
 
         {journey.phases
           .slice()
-          .sort((a, b) => a.order - b.order)
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
           .map((phase, phaseIdx) => (
             <PhaseCard
-              key={phase.id}
+              key={phase.id || phase.title || `phase-${phaseIdx}`}
               phase={phase}
               phaseIndex={phaseIdx}
               resourceMap={resourceMap}
@@ -520,10 +590,10 @@ function PhaseCard({
                             params={{ resourceId: resource.id }}
                             className="text-sm font-medium hover:underline underline-offset-2"
                           >
-                            {r.title}
+                            {r.title || resource.name}
                           </Link>
                         ) : (
-                          <span className="text-sm font-medium">{r.title}</span>
+                          <span className="text-sm font-medium">{r.title || resource?.name || "Unknown Resource"}</span>
                         )}
                         {r.reason && (
                           <p className="mt-0.5 text-[11px] text-muted-foreground">{r.reason}</p>

@@ -20,7 +20,7 @@ import {
   AssistantInput,
 } from "./ai-schemas";
 
-const FALLBACK_MODEL = "google/gemini-3-flash-preview";
+const FALLBACK_MODEL = "google/gemini-1.5-flash";
 
 interface ProviderErrorDetails {
   message: string;
@@ -321,10 +321,10 @@ export const generateLearningJourneyAI = createServerFn({ method: "POST" })
       const progress = data.progress ?? {};
 
       const resourcesList = data.resources
-        .map(
-          (r) =>
-            `${r.id}: ${r.name} (${r.type}${r.folderPath ? `, folder: ${r.folderPath}` : ""})${progress[r.id] ? `, progress: ${progress[r.id]}` : ""}`,
-        )
+        .map((r) => {
+          const dateStr = r.addedAt ? new Date(r.addedAt).toLocaleDateString() : "unknown";
+          return `${r.id}: ${r.name} (${r.type}${r.folderPath ? `, folder: ${r.folderPath}` : ""}, uploaded: ${dateStr})${progress[r.id] ? `, progress: ${progress[r.id]}` : ""}`;
+        })
         .join("\n");
 
       const notesList = data.notes
@@ -362,22 +362,34 @@ Create a learning journey with 3-6 phases. Each phase should have:
 4. For each resource: status (locked/available/in-progress/completed) based on progress and prerequisites
 
 Rules:
-- Order phases logically: fundamentals → core concepts → practice → advanced → synthesis
-- Respect folder structure as implicit grouping (items in same folder = same topic)
-- If resource A is a prerequisite for B (e.g., "Part 1" before "Part 2", or "Basics" before "Advanced"), enforce order
-- Mark resources as "completed" if progress shows completed, "in-progress" if started, "available" if unlocked but not started, "locked" if prerequisites not met
-- Provide a short reasoning for the journey design
+- Order phases logically: fundamentals → core concepts → practice → advanced → synthesis.
+- IMPORTANT: You MUST balance BOTH the logical knowledge progression (prerequisites) AND the order in which the user uploaded the resources (upload date). If a resource was uploaded earlier, try to introduce it earlier unless a strict dependency prevents it.
+- Respect folder structure as implicit grouping (items in same folder = same topic).
+- Mark resources as "completed" if progress shows completed, "in-progress" if started, "available" if unlocked but not started, "locked" if prerequisites not met.
+- Provide a short reasoning for the journey design, specifically explaining how you balanced knowledge dependencies with their original upload order.
 `;
 
-      const { object } = await generateObject({
-        model,
-        maxOutputTokens: 2000,
-        schema: JourneyOutput,
-        system:
-          "You design personalized learning curriculums. Return a structured journey with ordered phases and clear resource statuses. Be specific about prerequisites and progression logic.",
-        prompt,
-      });
-      return object;
+      try {
+        const { object } = await generateObject({
+          model,
+          maxOutputTokens: 4000,
+          schema: JourneyOutput,
+          system:
+            "You design personalized learning curriculums. Return ONLY a valid JSON object matching the requested schema. Do NOT wrap it in markdown code blocks. Do not add any text before or after the JSON.",
+          prompt,
+        });
+        return object;
+      } catch (error: any) {
+        // Log the exact parsing error and the raw text received
+        const fs = await import("fs");
+        fs.writeFileSync("ai-debug.log", JSON.stringify({
+          message: error.message,
+          text: error.text,
+          value: error.value,
+          cause: error.cause?.message
+        }, null, 2));
+        throw error;
+      }
     }),
   );
 

@@ -56,6 +56,7 @@ export const JourneyInput = z.object({
       name: z.string(),
       type: z.string(),
       folderPath: z.string().optional(),
+      addedAt: z.number().optional(),
     }),
   ),
   notes: z.array(
@@ -80,15 +81,15 @@ export const JourneyInput = z.object({
 });
 
 export const JourneyPhase = z.object({
-  id: z.string(),
+  id: z.string().optional(),
   title: z.string(),
   description: z.string(),
-  order: z.number(),
+  order: z.number().optional(),
   resources: z.array(
     z.object({
       id: z.string(),
-      title: z.string(),
-      status: z.enum(["locked", "available", "in-progress", "completed"]),
+      title: z.string().optional(),
+      status: z.string(),
       reason: z.string().optional(),
     }),
   ),
