@@ -3,6 +3,7 @@ import { saveAs } from "file-saver";
 import { format } from "date-fns";
 import { jsPDF } from "jspdf";
 import { getDb, type Note, type Resource } from "@/db/schema";
+import type { WeeklyRecap } from "./recapService";
 
 export async function exportNotesZip() {
   const db = getDb();
@@ -254,4 +255,159 @@ export async function importFullBackup(file: File) {
       if (data.notebook_cells) await db.notebook_cells.bulkPut(data.notebook_cells);
     },
   );
+}
+
+export function formatRecapHtml(recap: WeeklyRecap): string {
+  const fmtDur = (s: number) => {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
+
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  const dailyRows = recap.dailyBreakdown
+    .map(
+      (d, i) => `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:500">${dayNames[i]}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;color:#666">${format(new Date(d.date), "MMM d")}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;font-variant-numeric:tabular-nums">${d.seconds > 0 ? fmtDur(d.seconds) : "—"}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;color:#666">${d.resources.length > 0 ? d.resources.map((r) => r.name).join(", ") : "—"}</td>
+      </tr>`,
+    )
+    .join("");
+
+  const studiedRows = recap.resourcesStudied
+    .slice(0, 10)
+    .map(
+      (r) => `
+      <tr>
+        <td style="padding:6px 12px;border-bottom:1px solid #eee">${r.name}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #eee;color:#888;text-transform:capitalize">${r.type}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right;font-variant-numeric:tabular-nums">${fmtDur(r.seconds)}</td>
+      </tr>`,
+    )
+    .join("");
+
+  const weakRows = recap.weakAreas
+    .map(
+      (w) => `
+      <tr>
+        <td style="padding:6px 12px;border-bottom:1px solid #eee">${w.name}</td>
+        <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right">${w.score != null ? `${w.score}%` : "In progress"}</td>
+      </tr>`,
+    )
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StudyVault Weekly Recap</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+  <div style="max-width:600px;margin:0 auto;background:#fff">
+
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#6C63FF,#4F46E5);padding:32px 24px;text-align:center">
+      <h1 style="margin:0;color:#fff;font-size:24px;font-weight:700">📚 Weekly Study Recap</h1>
+      <p style="margin:8px 0 0;color:rgba(255,255,255,0.85);font-size:14px">
+        ${format(new Date(recap.weekStart), "MMM d")} – ${format(new Date(recap.weekEnd), "MMM d, yyyy")}
+      </p>
+    </div>
+
+    <!-- Stats Cards -->
+    <div style="display:flex;gap:12px;padding:24px 24px 0">
+      <div style="flex:1;background:#f8f7ff;border-radius:12px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:#6C63FF">${fmtDur(recap.totalSeconds)}</div>
+        <div style="font-size:12px;color:#888;margin-top:4px">Study Time</div>
+      </div>
+      <div style="flex:1;background:#f0fdf4;border-radius:12px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:#16a34a">${recap.daysActive}/7</div>
+        <div style="font-size:12px;color:#888;margin-top:4px">Days Active</div>
+      </div>
+      <div style="flex:1;background:#fef3c7;border-radius:12px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:#d97706">${recap.streak}🔥</div>
+        <div style="font-size:12px;color:#888;margin-top:4px">Day Streak</div>
+      </div>
+    </div>
+
+    <!-- Summary Stats -->
+    <div style="padding:16px 24px;display:flex;gap:24px;font-size:14px;color:#555">
+      <span>📖 <strong>${recap.resourcesStudied.length}</strong> resources studied</span>
+      <span>✅ <strong>${recap.resourcesCompleted.length}</strong> completed</span>
+      <span>🃏 <strong>${recap.dueFlashcards}</strong> flashcards due</span>
+    </div>
+
+    <!-- Daily Breakdown -->
+    <div style="padding:0 24px 24px">
+      <h2 style="font-size:16px;font-weight:600;margin:0 0 12px;color:#333">Daily Breakdown</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#f8f9fa">
+            <th style="padding:8px 12px;text-align:left;font-weight:600;color:#555">Day</th>
+            <th style="padding:8px 12px;text-align:left;font-weight:600;color:#555">Date</th>
+            <th style="padding:8px 12px;text-align:right;font-weight:600;color:#555">Time</th>
+            <th style="padding:8px 12px;text-align:left;font-weight:600;color:#555">Resources</th>
+          </tr>
+        </thead>
+        <tbody>${dailyRows}</tbody>
+      </table>
+    </div>
+
+    ${
+      recap.resourcesStudied.length > 0
+        ? `
+    <!-- Top Resources -->
+    <div style="padding:0 24px 24px">
+      <h2 style="font-size:16px;font-weight:600;margin:0 0 12px;color:#333">Top Resources</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#f8f9fa">
+            <th style="padding:6px 12px;text-align:left;font-weight:600;color:#555">Resource</th>
+            <th style="padding:6px 12px;text-align:left;font-weight:600;color:#555">Type</th>
+            <th style="padding:6px 12px;text-align:right;font-weight:600;color:#555">Time</th>
+          </tr>
+        </thead>
+        <tbody>${studiedRows}</tbody>
+      </table>
+    </div>`
+        : ""
+    }
+
+    ${
+      recap.weakAreas.length > 0
+        ? `
+    <!-- Weak Areas -->
+    <div style="padding:0 24px 24px">
+      <h2 style="font-size:16px;font-weight:600;margin:0 0 12px;color:#333">Areas to Review</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#f8f9fa">
+            <th style="padding:6px 12px;text-align:left;font-weight:600;color:#555">Resource</th>
+            <th style="padding:6px 12px;text-align:right;font-weight:600;color:#555">Score</th>
+          </tr>
+        </thead>
+        <tbody>${weakRows}</tbody>
+      </table>
+    </div>`
+        : ""
+    }
+
+    <!-- Footer -->
+    <div style="padding:24px;text-align:center;color:#999;font-size:12px;border-top:1px solid #eee">
+      Generated by StudyVault · ${format(new Date(), "PPP")}
+    </div>
+
+  </div>
+</body>
+</html>`;
+}
+
+export function exportWeeklyRecapHtml(recap: WeeklyRecap) {
+  const html = formatRecapHtml(recap);
+  const blob = new Blob([html], { type: "text/html" });
+  saveAs(blob, `studyvault-recap-${recap.weekStart}.html`);
 }

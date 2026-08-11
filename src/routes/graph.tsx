@@ -212,7 +212,7 @@ function GraphPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-4 p-4 sm:p-6">
+    <div className="mx-auto w-full max-w-7xl space-y-4 p-6">
       {/* Header */}
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-4">
         <div>

@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "tool": "claude-auth",
+  "metadata": {
+    "sessionId": "POWER-CLAUDE-STANDALONE-20260811-162042",
+    "startedAt": "2026-08-11T16:20:42.000Z",
+    "finishedAt": "2026-08-11T16:20:42.000Z",
+    "durationSeconds": 0,
+    "environment": "standalone"
+  },
+  "summary": {
+    "totalFindings": 0,
+    "totalMetrics": 7,
+    "bySeverity": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    },
+    "status": "green"
+  },
+  "findings": [],
+  "metrics": [
+    {
+      "name": "auth.accounts.total",
+      "value": 0,
+      "unit": "count"
+    },
+    {
+      "name": "auth.accounts.healthy",
+      "value": 0,
+      "unit": "count"
+    },
+    {
+      "name": "auth.accounts.cooling",
+      "value": 0,
+      "unit": "count"
+    },
+    {
+      "name": "auth.accounts.blocked",
+      "value": 0,
+      "unit": "count"
+    },
+    {
+      "name": "auth.ratelimits.today",
+      "value": 0,
+      "unit": "count"
+    },
+    {
+      "name": "auth.rotations.today",
+      "value": 0,
+      "unit": "count"
+    },
+    {
+      "name": "auth.orphans.pruned",
+      "value": 0,
+      "unit": "count"
+    }
+  ],
+  "toolContext": {
+    "activeAccount": "",
+    "collectorMode": "standalone",
+    "systemHealth": {
+      "layer1_handler": true,
+      "layer2_watchdog": "inactive",
+      "layer2_watchdogLast": "",
+      "layer3_healthcheck": "inactive",
+      "lockoutActive": false,
+      "lockoutUntil": "",
+      "lockoutRemaining": 0,
+      "nextRecoveryAccount": "",
+      "nextRecoverySecs": 0,
+      "refreshBudgetUsed": 0,
+      "refreshBudgetMax": 0,
+      "layer2_lastMs": 0,
+      "layer2_ageMs": null,
+      "layer2_stale": false
+    }
+  }
+}

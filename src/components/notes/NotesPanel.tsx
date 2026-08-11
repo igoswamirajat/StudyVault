@@ -18,6 +18,8 @@ import {
   Eye,
   Pencil,
   Code2,
+  Layers,
+  HelpCircle,
 } from "lucide-react";
 import {
   createNote,
@@ -30,9 +32,11 @@ import {
 import {
   aiGenerateSummary,
   aiGenerateAutoNote,
+  aiGenerateFlashcards,
   isAiConfigured,
   aiCanSendMedia,
 } from "@/services/aiService";
+import { addFlashcards } from "@/services/flashcardService";
 import { buildResourceContext, gatherResourceMedia } from "@/services/aiContext";
 import { formatDistanceToNow } from "date-fns";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -40,6 +44,7 @@ import { onHighlight, onViewerState } from "@/lib/viewer-bus";
 import { Link as RouterLink } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { QuizTabContent } from "@/components/quiz/QuizTabContent";
 
 interface Props {
   resource: Resource | null;
@@ -49,7 +54,7 @@ interface Props {
   getVideoTime?: () => number | null;
 }
 
-type TabKey = "summary" | "notes" | "day" | "all" | "notebook";
+type TabKey = "summary" | "notes" | "day" | "all" | "notebook" | "quiz";
 
 export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVideoTime }: Props) {
   const [tab, setTab] = useState<TabKey>("summary");
@@ -58,6 +63,7 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
   const [summaryId, setSummaryId] = useState<string | null>(null);
   const [page, setPage] = useState<number | undefined>();
   const [previewMode, setPreviewMode] = useState(false);
+
   const editorRef = useRef<Editor | null>(null);
   const timerRef = useRef<number | null>(null);
   const pendingSaveRef = useRef<{ id: string; json: string; markdown: string } | null>(null);
@@ -283,9 +289,15 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
     }
   }
 
+
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="flex min-h-0 flex-1 flex-col">
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as TabKey)}
+        className="flex min-h-0 flex-1 flex-col"
+      >
         <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
           <TabsList className="h-8 flex-1 bg-transparent justify-start">
             <TabsTrigger value="summary" className="gap-1 text-xs" disabled={!resource}>
@@ -303,9 +315,17 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
             <TabsTrigger value="notebook" className="gap-1 text-xs" disabled={!resourceId}>
               <Code2 className="size-3" /> Code
             </TabsTrigger>
+            <TabsTrigger value="quiz" className="gap-1 text-xs" disabled={!resourceId}>
+              <HelpCircle className="size-3" /> Quiz
+            </TabsTrigger>
           </TabsList>
           {tab !== "summary" && (
-            <Button size="sm" variant="ghost" className="ml-auto shrink-0 h-7 w-7 p-0" onClick={handleNew}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto shrink-0 h-7 w-7 p-0"
+              onClick={handleNew}
+            >
               <Plus className="size-3.5" />
             </Button>
           )}
@@ -372,6 +392,7 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                   )}{" "}
                   AI Notes
                 </Button>
+
                 <span className="ml-auto text-[10px] text-muted-foreground">
                   {saved ? "Saved" : "Saving…"}
                 </span>
@@ -542,6 +563,14 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
               getVideoTime={getVideoTime}
               onSeekVideo={onSeekVideo}
             />
+          </TabsContent>
+        )}
+        {resourceId && (
+          <TabsContent
+            value="quiz"
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4"
+          >
+            <QuizTabContent resourceId={resourceId} />
           </TabsContent>
         )}
       </Tabs>

@@ -1,4 +1,5 @@
 import type { NotebookCell, NotebookKernel } from "@/db/schema";
+import { notify } from "@/lib/notify";
 
 export interface KernelRuntimeInfo {
   installed: boolean;
@@ -51,7 +52,9 @@ function readPyodideVersion(p: PyodideType): string {
     if (typeof p.version === "function") return p.version();
     if (typeof p.version === "string") return p.version;
     if (p._module?.version) return String(p._module.version);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return "unknown";
 }
 
@@ -78,7 +81,8 @@ async function loadPyodideLocally(): Promise<PyodideType> {
 
   try {
     // Cast needed: TS narrows window.loadPyodide to undefined after Case 1 return.
-    const loader = (window as unknown as Record<string, unknown>)["loadPyodide"] as ((...a: unknown[]) => Promise<PyodideType>) | undefined;
+    const loader = (window as unknown as Record<string, unknown>)["loadPyodide"] as
+      ((...a: unknown[]) => Promise<PyodideType>) | undefined;
     if (typeof loader !== "function") {
       throw new Error("pyodide.js loaded but loadPyodide() not found.");
     }
@@ -98,17 +102,23 @@ export async function loadPyodideOnce(): Promise<PyodideType | null> {
   if (pyodideInstance) return pyodideInstance;
   if (pyodideLoading) return pyodideLoading;
 
-  pyodideLoading = loadPyodideLocally().then((instance) => {
-    pyodideInstance = instance;
-    return instance;
-  }).catch((error) => {
-    pyodideLoading = null;
-    pyodideInstance = null;
-    console.error("[Pyodide] Failed to initialize:", error);
-    throw error;
-  }).finally(() => {
-    pyodideLoading = null;
-  });
+  pyodideLoading = loadPyodideLocally()
+    .then((instance) => {
+      pyodideInstance = instance;
+      return instance;
+    })
+    .catch((error) => {
+      pyodideLoading = null;
+      pyodideInstance = null;
+      console.error("[Pyodide] Failed to initialize:", error);
+      notify.error("Python kernel failed to start", {
+        description: "Notebook cells will be unavailable this session",
+      });
+      throw error;
+    })
+    .finally(() => {
+      pyodideLoading = null;
+    });
 
   return pyodideLoading;
 }
@@ -137,7 +147,7 @@ export async function runPyodideCell(cell: NotebookCell): Promise<string> {
 
   // Single-shot: setup capture → run code → read output → restore stdout.
   // Returns stdout as plain string via last expression — no dict/Map conversion.
-  const result = await pyodide.runPython(`
+  const result = (await pyodide.runPython(`
 import sys, traceback
 from io import StringIO
 
@@ -157,7 +167,7 @@ __err = __buf_err.getvalue()
 if __err:
     __out = (__out + chr(10) + __err).strip()
 __out if __out else "(no output)"
-`) as string;
+`)) as string;
 
   return typeof result === "string" && result.trim() ? result.trim() : "(no output)";
 }

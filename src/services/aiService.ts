@@ -321,7 +321,8 @@ export interface AssistantAction {
     | "start_studying"
     | "generate_summary"
     | "generate_flashcards"
-    | "generate_quiz";
+    | "generate_quiz"
+    | "create_note_from_chat";
   resourceName?: string;
   resourceId?: string;
   route?: string;
@@ -329,6 +330,8 @@ export interface AssistantAction {
   parentPath?: string;
   resourceNames?: string[];
   reason?: string;
+  title?: string;
+  content?: string;
 }
 
 /**

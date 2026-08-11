@@ -11,7 +11,18 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { getDb, type Note, type Resource } from "@/db/schema";
-import { Library, Play, NotebookText, BarChart3, CalendarDays, Settings, FileText, Sparkles } from "lucide-react";
+import {
+  Library,
+  Play,
+  NotebookText,
+  BarChart3,
+  CalendarDays,
+  Settings,
+  FileText,
+  Sparkles,
+  Wrench,
+  Layers,
+} from "lucide-react";
 
 /** Global ⌘K / Ctrl-K palette: jump to any resource, note, or nav route. */
 export function CommandPalette() {
@@ -34,7 +45,10 @@ export function CommandPalette() {
     [open],
   ) ?? []) as Resource[];
   const notes = (useLiveQuery(
-    () => (open ? getDb().notes.orderBy("updatedAt").reverse().limit(100).toArray() : Promise.resolve([] as Note[])),
+    () =>
+      open
+        ? getDb().notes.orderBy("updatedAt").reverse().limit(100).toArray()
+        : Promise.resolve([] as Note[]),
     [open],
   ) ?? []) as Note[];
 
@@ -67,6 +81,57 @@ export function CommandPalette() {
           </CommandItem>
           <CommandItem onSelect={() => go(() => navigate({ to: "/settings" }))}>
             <Settings className="mr-2 size-4" /> Settings
+          </CommandItem>
+          <CommandItem
+            value="repair workspace integrity orphans clean"
+            onSelect={() =>
+              go(async () => {
+                const { repairOrphans } = await import("@/services/integrityService");
+                await repairOrphans();
+              })
+            }
+          >
+            <Wrench className="mr-2 size-4" /> Repair Workspace
+          </CommandItem>
+          <CommandItem
+            value="enable durable storage save folder"
+            onSelect={() =>
+              go(async () => {
+                const { chooseDurableRoot } = await import("@/lib/durable-storage");
+                await chooseDurableRoot();
+              })
+            }
+          >
+            <Wrench className="mr-2 size-4" /> Enable Durable Storage
+          </CommandItem>
+        </CommandGroup>
+
+        <CommandGroup heading="Actions">
+          <CommandItem
+            value="generate flashcards ai cards"
+            onSelect={() =>
+              go(async () => {
+                const { toast } = await import("sonner");
+                toast.info(
+                  "Open a resource in Study Room, then use the Flashcards button in the footer.",
+                );
+              })
+            }
+          >
+            <Layers className="mr-2 size-4" /> Generate AI Flashcards
+          </CommandItem>
+          <CommandItem
+            value="generate quiz ai questions"
+            onSelect={() =>
+              go(async () => {
+                const { toast } = await import("sonner");
+                toast.info(
+                  "Open a resource in Study Room, then use the Quiz button in the Notes Panel.",
+                );
+              })
+            }
+          >
+            <Sparkles className="mr-2 size-4" /> Generate AI Quiz
           </CommandItem>
         </CommandGroup>
 
@@ -104,12 +169,19 @@ export function CommandPalette() {
                   onSelect={() =>
                     go(() =>
                       n.resourceId
-                        ? navigate({ to: "/study/$resourceId", params: { resourceId: n.resourceId } })
+                        ? navigate({
+                            to: "/study/$resourceId",
+                            params: { resourceId: n.resourceId },
+                          })
                         : navigate({ to: "/notes" }),
                     )
                   }
                 >
-                  {n.isSummary ? <Sparkles className="mr-2 size-4" /> : <NotebookText className="mr-2 size-4" />}
+                  {n.isSummary ? (
+                    <Sparkles className="mr-2 size-4" />
+                  ) : (
+                    <NotebookText className="mr-2 size-4" />
+                  )}
                   <span className="truncate">{n.title || "Untitled"}</span>
                 </CommandItem>
               ))}

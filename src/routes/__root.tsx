@@ -14,6 +14,8 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppShell } from "../components/app-shell/AppShell";
 import { Toaster } from "../components/ui/sonner";
 import { useAutoBackup } from "../hooks/useAutoBackup";
+import { installGlobalErrorHandlers } from "../lib/global-error-handler";
+import { ErrorBoundary } from "../components/common/ErrorBoundary";
 
 function NotFoundComponent() {
   return (
@@ -119,11 +121,16 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   useAutoBackup();
+  useEffect(() => {
+    installGlobalErrorHandlers();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
       <AppShell>
-        <Outlet />
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
       </AppShell>
       <Toaster richColors position="top-right" />
     </QueryClientProvider>

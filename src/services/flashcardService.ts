@@ -3,7 +3,6 @@ import { getDb, type FlashcardRow } from "@/db/schema";
 
 export type Flashcard = FlashcardRow;
 
-
 export type Grade = 0 | 1 | 2 | 3 | 4 | 5;
 
 /**
@@ -58,6 +57,16 @@ export async function addFlashcards(
   return records;
 }
 
+export async function generateFlashcardsFromText(
+  text: string,
+  count: number = 5
+): Promise<Flashcard[]> {
+  // Use a dynamic import or import at the top for aiGenerateFlashcards
+  const { aiGenerateFlashcards } = await import("./aiService");
+  const result = await aiGenerateFlashcards("Global Notes", text, "text", count);
+  return addFlashcards(null, result.cards, "ai");
+}
+
 export async function listFlashcardsForResource(resourceId: string): Promise<Flashcard[]> {
   return getDb().flashcards.where("resourceId").equals(resourceId).toArray();
 }
@@ -82,6 +91,25 @@ export async function gradeFlashcard(id: string, grade: Grade): Promise<Flashcar
 
 export async function deleteFlashcard(id: string): Promise<void> {
   await getDb().flashcards.delete(id);
+}
+
+export async function updateFlashcard(
+  id: string,
+  patch: Partial<Pick<Flashcard, "front" | "back" | "hint">>,
+): Promise<Flashcard | null> {
+  const db = getDb();
+  const card = await db.flashcards.get(id);
+  if (!card) return null;
+  const next = { ...card, ...patch };
+  await db.flashcards.put(next);
+  return next;
+}
+
+export async function deleteAllForResource(resourceId: string): Promise<number> {
+  const db = getDb();
+  const ids = await db.flashcards.where("resourceId").equals(resourceId).primaryKeys();
+  await db.flashcards.bulkDelete(ids);
+  return ids.length;
 }
 
 export async function countFlashcardStats() {

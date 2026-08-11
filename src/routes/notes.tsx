@@ -91,10 +91,10 @@ function NotesPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-48px)]">
+    <div className="flex h-full">
       <aside
         style={{ width: sidebar.size }}
-        className="flex shrink-0 flex-col border-r border-border bg-surface-1/40"
+        className="flex min-h-0 shrink-0 flex-col border-r border-border bg-surface-1/40"
       >
         <div className="border-b border-border p-3">
           <div className="mb-2 flex items-center justify-between">
@@ -111,7 +111,7 @@ function NotesPage() {
             />
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-1.5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
           {filtered.length === 0 && (
             <p className="px-3 py-6 text-center text-xs text-muted-foreground">No notes yet.</p>
           )}
@@ -163,7 +163,7 @@ function NotesPage() {
                 <Trash2 className="size-4" />
               </Button>
             </div>
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
               {previewMode ? (
                 <MarkdownRenderer markdown={active.contentMarkdown} className="min-h-[140px]" />
               ) : (

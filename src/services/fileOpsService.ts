@@ -67,13 +67,56 @@ export async function restoreResources(ids: string[]) {
 export async function purgeResources(ids: string[]) {
   if (ids.length === 0) return;
   const db = getDb();
-  await db.transaction("rw", db.resources, db.progress, db.video_progress, async () => {
-    for (const id of ids) {
-      await db.resources.delete(id);
-      await db.progress.delete(id);
-      await db.video_progress.delete(id);
-    }
-  });
+  await db.transaction(
+    "rw",
+    [
+      db.resources,
+      db.progress,
+      db.video_progress,
+      db.notes,
+      db.pdf_annotations,
+      db.bookmarks,
+      db.quizzes,
+      db.flashcards,
+      db.notebooks,
+      db.notebook_cells,
+      db.study_sessions,
+    ],
+    async () => {
+      // Direct 1:1 and 1:N tables
+      await Promise.all([
+        db.resources.bulkDelete(ids),
+        db.progress.bulkDelete(ids),
+        db.video_progress.bulkDelete(ids),
+        db.notes.where("resourceId").anyOf(ids).delete(),
+        db.pdf_annotations.where("resourceId").anyOf(ids).delete(),
+        db.bookmarks.where("resourceId").anyOf(ids).delete(),
+        db.quizzes.where("resourceId").anyOf(ids).delete(),
+        db.flashcards.where("resourceId").anyOf(ids).delete(),
+      ]);
+
+      // Notebooks + their cells
+      const notebookIds = await db.notebooks.where("resourceId").anyOf(ids).primaryKeys();
+      if (notebookIds.length > 0) {
+        await db.notebooks.bulkDelete(notebookIds);
+        await db.notebook_cells.where("notebookId").anyOf(notebookIds).delete();
+      }
+
+      // Clean dangling resource IDs inside study_sessions.resourcesStudied
+      const idSet = new Set(ids);
+      const sessions = await db.study_sessions.toArray();
+      for (const session of sessions) {
+        if (
+          Array.isArray(session.resourcesStudied) &&
+          session.resourcesStudied.some((rid) => idSet.has(rid))
+        ) {
+          await db.study_sessions.update(session.id!, {
+            resourcesStudied: session.resourcesStudied.filter((rid) => !idSet.has(rid)),
+          });
+        }
+      }
+    },
+  );
   await logOp("purge", { ids });
 }
 

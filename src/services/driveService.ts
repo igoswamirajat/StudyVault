@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import { getDb, type Resource } from "@/db/schema";
 import { FOLDER_MIME, classifyByName, driveThumbUrl, type ScannedFile } from "./driveParse";
 import { scanDriveEmbedServerFn, checkDriveEmbedServerFn } from "./driveScan.functions";
+import { notify } from "@/lib/notify";
 
 // Re-export the pure helpers so existing `@/services/driveService` imports keep working.
 export {
@@ -27,6 +28,9 @@ export async function scanFolder(folderId: string, apiKey?: string | null): Prom
       return await scanWithApiRecursive(folderId, apiKey);
     } catch (e) {
       console.warn("Drive API scan failed, falling back to embed proxy:", e);
+      notify.info("Drive API key failed", {
+        description: "Falling back to public embed scan (limited depth)",
+      });
     }
   }
   // Keyless path: the embed view only sees the folder's top level and can't read

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   DndContext,
@@ -67,8 +67,17 @@ import {
   copyResources,
   createFolder as createFolderSvc,
 } from "@/services/fileOpsService";
+import {
+  SortFilterBar,
+  type SortKey,
+  type SortDir,
+  type FilterKey,
+  buildProgressMap,
+  sortResourcesByKey,
+} from "@/components/ui/SortFilterBar";
 import { useFileSelection, makeSelectHandler } from "@/hooks/useFileSelection";
 import { useFileClipboard } from "@/hooks/useFileClipboard";
+import { useResizableSize, ResizeHandle } from "@/hooks/useResizableSize";
 
 export const Route = createFileRoute("/organizer")({
   component: () => (
@@ -78,7 +87,7 @@ export const Route = createFileRoute("/organizer")({
   ),
 });
 
-type SortMode = "order" | "name" | "added";
+type SortMode = SortKey;
 
 interface FolderNode {
   path: string;
@@ -221,6 +230,13 @@ function Organizer() {
 
   const sel = useFileSelection();
   const clip = useFileClipboard();
+  const treeSize = useResizableSize({
+    storageKey: "organizer.treeWidth",
+    defaultValue: 340,
+    min: 220,
+    max: 480,
+    direction: "left",
+  });
 
   const pasteInto = async (targetPath: string) => {
     const c = clip.clipboard;
@@ -396,9 +412,12 @@ function Organizer() {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="grid h-full grid-cols-1 gap-0 lg:grid-cols-[340px_1fr]">
-        <aside className="border-b border-border bg-surface-1/40 p-3 lg:border-b-0 lg:border-r">
-          <div className="mb-3 flex items-center justify-between">
+      <div className="flex h-full flex-col lg:flex-row">
+        <aside
+          style={{ "--tree-w": `${treeSize.size}px` } as CSSProperties}
+          className="flex max-h-[45vh] w-full shrink-0 flex-col overflow-y-auto overscroll-contain border-b border-border bg-surface-1/40 p-3 lg:max-h-none lg:w-[var(--tree-w)] lg:border-b-0 lg:border-r"
+        >
+          <div className="mb-3 flex shrink-0 items-center justify-between">
             <h2 className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
               Course Folders
             </h2>
@@ -450,7 +469,11 @@ function Organizer() {
           </div>
         </aside>
 
-        <section className="overflow-y-auto p-4 sm:p-6">
+        <div className="hidden lg:block">
+          <ResizeHandle side="left" onMouseDown={treeSize.startDrag} />
+        </div>
+
+        <section className="min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6">
           <FolderDetail
             path={selectedPath}
             tree={tree}
@@ -866,11 +889,14 @@ function FolderDetail(props: FolderDetailProps) {
     return find(tree);
   }, [path, tree]);
 
-  const [sortMode, setSortMode] = useState<SortMode>("order");
+  const [sortMode, setSortMode] = useState<SortMode>("day");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const sortKey = path ? `folderSort_${path}` : `folderSort___unassigned__`;
 
   useEffect(() => {
-    void getSetting<SortMode>(sortKey, "order").then((v) => setSortMode(v ?? "order"));
+    void getSetting<SortMode>(sortKey, "day").then((v) => setSortMode(v ?? "day"));
   }, [sortKey]);
 
   async function updateSort(v: SortMode) {
@@ -886,16 +912,61 @@ function FolderDetail(props: FolderDetailProps) {
   );
   const remainingSec = Math.max(0, totalSec - doneSec);
 
+  // Progress map for sorting
+  const allProgress = useLiveQuery(() => getDb().progress.toArray(), []) ?? [];
+  const progressMap = useMemo(() => buildProgressMap(allProgress), [allProgress]);
+
+  // Available tags for the folder's resources
+  const availableTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    const sources = node ? allDescendants : orphans;
+    for (const r of sources) {
+      if (r.tags) for (const t of r.tags) tagSet.add(t);
+    }
+    return [...tagSet].sort();
+  }, [node, allDescendants, orphans]);
+
+  // Filter + sort resources
+  const filteredResources = useMemo(() => {
+    const sources = node ? allDescendants : orphans;
+    let r = sources.filter((x) => (x.status ?? "active") === "active");
+    if (filter !== "all") {
+      if (filter === "video" || filter === "pdf" || filter === "markdown")
+        r = r.filter((x) => x.type === filter);
+      if (filter === "in_progress")
+        r = r.filter((x) => progressMap.get(x.id)?.status === "in_progress");
+      if (filter === "completed")
+        r = r.filter((x) => progressMap.get(x.id)?.status === "completed");
+      if (filter === "downloaded") r = r.filter((x) => x.isDownloaded);
+      if (filter === "revision") r = r.filter((x) => x.revisionFlag && x.revisionFlag !== "done");
+      if (filter === "drive")
+        r = r.filter((x) => (x.source ?? (x.driveId ? "drive" : "local")) === "drive");
+      if (filter === "telegram") r = r.filter((x) => x.source === "telegram");
+      if (filter === "youtube") r = r.filter((x) => x.source === "youtube");
+    }
+    if (selectedTags.length > 0) r = r.filter((x) => x.tags?.some((t) => selectedTags.includes(t)));
+    return sortResourcesByKey(r, sortMode, sortDir, progressMap);
+  }, [node, allDescendants, orphans, filter, selectedTags, sortMode, sortDir, progressMap]);
+
   if (path === "__unassigned__") {
     return (
       <div>
         <Header title="Unassigned" subtitle="Drag any item onto a folder on the left." />
-        <SortBar sortMode={sortMode} onChange={updateSort} />
-        <ResourceList
-          resources={sortResources(orphans, sortMode)}
-          scope="organizer:__unassigned__"
-          {...props}
+        <SortFilterBar
+          sort={sortMode}
+          sortDir={sortDir}
+          filter={filter}
+          availableTags={availableTags}
+          selectedTags={selectedTags}
+          onSortChange={(v) => {
+            setSortMode(v);
+            void setSetting(sortKey, v);
+          }}
+          onSortDirChange={setSortDir}
+          onFilterChange={setFilter}
+          onTagsChange={setSelectedTags}
         />
+        <ResourceList resources={filteredResources} scope="organizer:__unassigned__" {...props} />
       </div>
     );
   }
@@ -930,12 +1001,21 @@ function FolderDetail(props: FolderDetailProps) {
           </>
         }
       />
-      <SortBar sortMode={sortMode} onChange={updateSort} />
-      <ResourceList
-        resources={sortResources(node.resources, sortMode)}
-        scope={`organizer:${node.path}`}
-        {...props}
+      <SortFilterBar
+        sort={sortMode}
+        sortDir={sortDir}
+        filter={filter}
+        availableTags={availableTags}
+        selectedTags={selectedTags}
+        onSortChange={(v) => {
+          setSortMode(v);
+          void setSetting(sortKey, v);
+        }}
+        onSortDirChange={setSortDir}
+        onFilterChange={setFilter}
+        onTagsChange={setSelectedTags}
       />
+      <ResourceList resources={filteredResources} scope={`organizer:${node.path}`} {...props} />
       {node.children.length > 0 && (
         <div className="mt-6">
           <h3 className="mb-2 font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
@@ -998,33 +1078,6 @@ function Header({
   );
 }
 
-function SortBar({ sortMode, onChange }: { sortMode: SortMode; onChange: (v: SortMode) => void }) {
-  return (
-    <div className="mb-3 flex items-center gap-2">
-      <label className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
-        Sort
-      </label>
-      <select
-        value={sortMode}
-        onChange={(e) => onChange(e.target.value as SortMode)}
-        className="h-8 border border-input bg-background px-2 text-xs"
-      >
-        <option value="order">Order</option>
-        <option value="name">Name</option>
-        <option value="added">Added Time</option>
-      </select>
-    </div>
-  );
-}
-
-function sortResources(items: Resource[], mode: SortMode): Resource[] {
-  const arr = items.slice();
-  if (mode === "name") arr.sort((a, b) => a.name.localeCompare(b.name));
-  else if (mode === "added") arr.sort((a, b) => a.addedAt - b.addedAt);
-  else arr.sort((a, b) => a.orderIndex - b.orderIndex);
-  return arr;
-}
-
 interface ResourceListProps extends FolderDetailProps {
   resources: Resource[];
   scope: string;
@@ -1048,6 +1101,40 @@ function ResourceList({
   navigate,
 }: ResourceListProps) {
   const orderedIds = resources.map((r) => r.id);
+  const [focusedIdx, setFocusedIdx] = useState(-1);
+  const sel = useFileSelection();
+
+  // J/K keyboard navigation
+  useEffect(() => {
+    if (resources.length === 0) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "j" && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setFocusedIdx((prev) => Math.min(prev + 1, resources.length - 1));
+      }
+      if (e.key === "k" && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setFocusedIdx((prev) => Math.max(prev - 1, 0));
+      }
+      if (e.key === "Enter" && focusedIdx >= 0 && focusedIdx < resources.length) {
+        e.preventDefault();
+        navigate({ to: "/study/$resourceId", params: { resourceId: resources[focusedIdx].id } });
+      }
+      if (e.key === "Delete" && focusedIdx >= 0 && focusedIdx < resources.length) {
+        e.preventDefault();
+        onTrash([resources[focusedIdx].id]);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [resources, focusedIdx, navigate, onTrash]);
+
+  // Reset focus when resources change
+  useEffect(() => {
+    setFocusedIdx(-1);
+  }, [resources.length]);
+
   if (resources.length === 0) {
     return (
       <ContextMenu>
@@ -1067,12 +1154,13 @@ function ResourceList({
   }
   return (
     <div className="space-y-1.5">
-      {resources.map((r) => (
+      {resources.map((r, i) => (
         <DraggableResource
           key={r.id}
           resource={r}
           scope={scope}
           orderedIds={orderedIds}
+          focused={i === focusedIdx}
           renaming={renamingId === r.id}
           onRequestRename={() => onRequestRename(r.id)}
           onCancelRename={onCancelRename}
@@ -1096,6 +1184,7 @@ function DraggableResource({
   resource,
   scope,
   orderedIds,
+  focused,
   renaming,
   onRequestRename,
   onCancelRename,
@@ -1113,6 +1202,7 @@ function DraggableResource({
   resource: Resource;
   scope: string;
   orderedIds: string[];
+  focused: boolean;
   renaming: boolean;
   onRequestRename: () => void;
   onCancelRename: () => void;
@@ -1142,7 +1232,11 @@ function DraggableResource({
           style={{ opacity: isDragging ? 0.4 : 1 }}
           className={cn(
             "flex items-center gap-2 border bg-surface-1 p-2.5",
-            selected ? "border-foreground ring-1 ring-foreground" : "border-border",
+            selected
+              ? "border-foreground ring-1 ring-foreground"
+              : focused
+                ? "border-foreground/50"
+                : "border-border",
           )}
           onClick={onClick}
           onContextMenu={() => {

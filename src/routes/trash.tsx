@@ -54,7 +54,7 @@ function TrashPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1200px] space-y-6 px-4 py-8 sm:px-8">
+    <div className="mx-auto w-full max-w-[1200px] space-y-6 p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-muted-foreground">Workspace</p>

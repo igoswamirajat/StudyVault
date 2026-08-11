@@ -6,6 +6,19 @@ import {
   createLovableAiGatewayProvider,
   createUserAiProvider,
 } from "./ai-gateway.server";
+import {
+  QuizSchema,
+  FlashcardSchema,
+  AiInput,
+  SummaryInput,
+  JourneyInput,
+  JourneyOutput,
+  AutoNoteInput,
+  DoubtInput,
+  SortInput,
+  AssistantSchema,
+  AssistantInput,
+} from "./ai-schemas";
 
 const FALLBACK_MODEL = "google/gemini-3-flash-preview";
 
@@ -233,45 +246,6 @@ function allowedMedia(
   return { images, videoDataUrl };
 }
 
-const QuizSchema = z.object({
-  questions: z
-    .array(
-      z.object({
-        question: z.string(),
-        options: z.array(z.string()).length(4),
-        correctIndex: z.number().int().min(0).max(3),
-        explanation: z.string(),
-      }),
-    )
-    .min(3)
-    .max(8),
-});
-
-const FlashcardSchema = z.object({
-  cards: z
-    .array(
-      z.object({
-        front: z.string(),
-        back: z.string(),
-        hint: z.string().optional(),
-      }),
-    )
-    .min(3)
-    .max(15),
-});
-
-const AiInput = z.object({
-  title: z.string(),
-  contentMarkdown: z.string(),
-  resourceType: z.string().optional(),
-  count: z.number().int().min(3).max(15).optional(),
-  provider: z.string().optional(),
-  endpoint: z.string().optional(),
-  apiKey: z.string().optional(),
-  model: z.string().optional(),
-  images: z.array(z.string()).optional(),
-  videoDataUrl: z.string().optional(),
-});
 
 export const generateQuizAI = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => AiInput.parse(data))
@@ -287,7 +261,7 @@ export const generateQuizAI = createServerFn({ method: "POST" })
         maxOutputTokens: 1200,
         schema: QuizSchema,
         system:
-          "You generate concise multiple-choice study quizzes. Always 4 options, exactly one correct. Base questions only on provided notes/summary and visible media. If source context is insufficient, keep questions limited to known facts.",
+          "You generate concise multiple-choice study quizzes. Always 4 options, exactly one correct. Base questions only on provided notes/summary and visible media. IMPORTANT: If the provided context is completely empty or insufficient to create valid questions, you MUST return an empty array for questions ([]). Respond STRICTLY with a raw JSON object matching the requested schema. Do NOT wrap the JSON in markdown blocks (no ```json).",
         messages: buildUserMessage(text, media.images, media.videoDataUrl),
       });
       return object;
@@ -308,23 +282,13 @@ export const generateFlashcardsAI = createServerFn({ method: "POST" })
         maxOutputTokens: 1200,
         schema: FlashcardSchema,
         system:
-          "You create high-quality study flashcards using the minimum-information principle: each card asks one atomic question. Use the user's notes/highlights and visible media as the source of truth.",
+          "You create high-quality study flashcards using the minimum-information principle: each card asks one atomic question. Use the user's notes/highlights and visible media as the source of truth. IMPORTANT: If the provided context is completely empty or insufficient to create valid flashcards, you MUST return an empty array for cards ([]). Respond STRICTLY with a raw JSON object matching the requested schema. Do NOT wrap the JSON in markdown blocks (no ```json).",
         messages: buildUserMessage(text, media.images, media.videoDataUrl),
       });
       return object;
     }),
   );
 
-const SummaryInput = z.object({
-  title: z.string(),
-  content: z.string(),
-  provider: z.string().optional(),
-  endpoint: z.string().optional(),
-  apiKey: z.string().optional(),
-  model: z.string().optional(),
-  images: z.array(z.string()).optional(),
-  videoDataUrl: z.string().optional(),
-});
 
 export const generateSummaryAI = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => SummaryInput.parse(data))
@@ -348,56 +312,6 @@ export const generateSummaryAI = createServerFn({ method: "POST" })
 
 /* ------------------------------------------------- Learning Journey --- */
 
-const JourneyInput = z.object({
-  resources: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      type: z.string(),
-      folderPath: z.string().optional(),
-    }),
-  ),
-  notes: z.array(
-    z.object({
-      id: z.string(),
-      title: z.string(),
-      isSummary: z.boolean().optional(),
-      resourceId: z.string().optional(),
-    }),
-  ),
-  folders: z.array(
-    z.object({
-      path: z.string(),
-      name: z.string(),
-    }),
-  ),
-  progress: z.record(z.string(), z.string()).optional(),
-  provider: z.string().optional(),
-  endpoint: z.string().optional(),
-  apiKey: z.string().optional(),
-  model: z.string().optional(),
-});
-
-const JourneyPhase = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string(),
-  order: z.number(),
-  resources: z.array(
-    z.object({
-      id: z.string(),
-      title: z.string(),
-      status: z.enum(["locked", "available", "in-progress", "completed"]),
-      reason: z.string().optional(),
-    }),
-  ),
-});
-
-const JourneyOutput = z.object({
-  phases: z.array(JourneyPhase),
-  startingPoint: z.string().optional(),
-  reasoning: z.string(),
-});
 
 export const generateLearningJourneyAI = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => JourneyInput.parse(data))
@@ -467,17 +381,6 @@ Rules:
     }),
   );
 
-const AutoNoteInput = z.object({
-  title: z.string(),
-  content: z.string(),
-  resourceType: z.string().optional(),
-  provider: z.string().optional(),
-  endpoint: z.string().optional(),
-  apiKey: z.string().optional(),
-  model: z.string().optional(),
-  images: z.array(z.string()).optional(),
-  videoDataUrl: z.string().optional(),
-});
 
 export const generateAutoNoteAI = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => AutoNoteInput.parse(data))
@@ -501,22 +404,6 @@ export const generateAutoNoteAI = createServerFn({ method: "POST" })
 
 /* ------------------------------------------------------- Doubt Buster --- */
 
-const ChatTurn = z.object({
-  role: z.enum(["user", "assistant"]),
-  content: z.string(),
-});
-
-const DoubtInput = z.object({
-  title: z.string(),
-  context: z.string(),
-  history: z.array(ChatTurn).min(1),
-  provider: z.string().optional(),
-  endpoint: z.string().optional(),
-  apiKey: z.string().optional(),
-  model: z.string().optional(),
-  images: z.array(z.string()).optional(),
-  videoDataUrl: z.string().optional(),
-});
 
 /**
  * Answers a learner's question about ONE specific resource, grounded in the
@@ -556,20 +443,6 @@ export const answerDoubtAI = createServerFn({ method: "POST" })
     }),
   );
 
-const SortInput = z.object({
-  resources: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      type: z.string(),
-      folderPath: z.string().optional(),
-    }),
-  ),
-  provider: z.string().optional(),
-  endpoint: z.string().optional(),
-  apiKey: z.string().optional(),
-  model: z.string().optional(),
-});
 
 export const suggestSortOrderAI = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => SortInput.parse(data))
@@ -604,45 +477,6 @@ export const suggestSortOrderAI = createServerFn({ method: "POST" })
  * the client executes. Mutating actions are confirmed client-side before they
  * run; navigation/generation actions run immediately.
  */
-const AssistantAction = z.object({
-  type: z.enum([
-    "open_resource",
-    "go_to_route",
-    "next",
-    "prev",
-    "mark_complete",
-    "create_unit",
-    "move_to_unit",
-    "start_studying",
-    "generate_summary",
-    "generate_flashcards",
-    "generate_quiz",
-  ]),
-  // Free-form args; only the fields relevant to each type are read client-side.
-  resourceName: z.string().optional(),
-  resourceId: z.string().optional(),
-  route: z.string().optional(),
-  unitName: z.string().optional(),
-  parentPath: z.string().optional(),
-  resourceNames: z.array(z.string()).optional(),
-  reason: z.string().optional(),
-});
-
-const AssistantSchema = z.object({
-  reply: z.string(),
-  actions: z.array(AssistantAction).max(6),
-});
-
-const AssistantInput = z.object({
-  history: z.array(ChatTurn).min(1),
-  // A compact snapshot of the current session so the model can resolve
-  // "this video", "next one", sibling names, and available routes.
-  sessionContext: z.string(),
-  provider: z.string().optional(),
-  endpoint: z.string().optional(),
-  apiKey: z.string().optional(),
-  model: z.string().optional(),
-});
 
 export const studyAssistantAI = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => AssistantInput.parse(data))
@@ -667,7 +501,8 @@ export const studyAssistantAI = createServerFn({ method: "POST" })
           `- create_unit {unitName, parentPath?}: create a new folder/"week" (e.g. unitName "Week 2").\n` +
           `- move_to_unit {resourceNames, unitName}: move resources into a folder.\n` +
           `- start_studying {unitName}: open a folder as a playlist and start studying it.\n` +
-          `- generate_summary / generate_flashcards / generate_quiz: run AI on the current resource.\n\n` +
+          `- generate_summary / generate_flashcards / generate_quiz: run AI on the current resource.\n` +
+          `- create_note_from_chat {title, content}: save the assistant's last reply as a new note.\n\n` +
           `Rules: Only emit actions the user actually asked for. Prefer resolving names from the provided session context. ` +
           `Keep 'reply' short and friendly; it is shown in the chat. If the user only asks a question, return an empty actions array. ` +
           `Do not invent resource names that aren't in the context.\n\n` +

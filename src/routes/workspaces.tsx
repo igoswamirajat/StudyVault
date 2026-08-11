@@ -14,6 +14,7 @@ import {
   getActiveWorkspaceId,
 } from "@/services/workspaceService";
 import { resetDbCache } from "@/db/schema";
+import { forceSaveCurrentWorkspace, loadWorkspaceFromDisk } from "@/lib/durable-storage";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/workspaces")({
@@ -36,12 +37,13 @@ function WorkspacesPage() {
   };
   useEffect(refresh, []);
 
-  function open(id: string) {
+  async function open(id: string) {
+    await forceSaveCurrentWorkspace();
     setActiveWorkspace(id);
     resetDbCache();
+    await loadWorkspaceFromDisk(id);
     const ws = listWorkspaces().find((w) => w.id === id);
     toast.success(`Switched to ${ws?.name ?? "workspace"}`);
-    // Full reload so Dexie + every live query reattaches to the right DB.
     window.location.assign("/library");
   }
 
@@ -94,8 +96,8 @@ function WorkspacesPage() {
             Pick or create a workspace
           </h1>
           <p className="mb-6 max-w-xl text-sm text-muted-foreground">
-            Each workspace has its own Drive folder, library, notes, flashcards, and progress.
-            Use separate workspaces to keep courses (or accounts) from mixing.
+            Each workspace has its own Drive folder, library, notes, flashcards, and progress. Use
+            separate workspaces to keep courses (or accounts) from mixing.
           </p>
 
           {/* Existing list */}

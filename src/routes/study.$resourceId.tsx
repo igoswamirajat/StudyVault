@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate, Link, useRouter } from "@tanstack/react-r
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { getDb } from "@/db/schema";
 import { ClientOnly } from "@/components/common/ClientOnly";
 import { VideoViewer, type VideoController } from "@/components/study/VideoViewer";
@@ -32,7 +33,6 @@ import { useStudySession } from "@/hooks/useStudySession";
 import { useSettings } from "@/hooks/useSettings";
 import { formatHMS } from "@/lib/format-time";
 import { toast } from "sonner";
-import { QuizModal } from "@/components/quiz/QuizModal";
 import { driveOpenUrl } from "@/services/driveService";
 import {
   downloadResourceToLocal,
@@ -52,7 +52,7 @@ import { fetchAndCacheTranscript } from "@/services/youtubeTranscript.service";
 import type { AssistantAction } from "@/services/aiService";
 import { createFolder, moveResources } from "@/services/fileOpsService";
 import { generateQuizForResource } from "@/services/quizService";
-import { getOrCreateSummary, updateNote } from "@/services/notesService";
+import { getOrCreateSummary, updateNote, createNote } from "@/services/notesService";
 import { aiGenerateSummary } from "@/services/aiService";
 import { useResizableSize, ResizeHandle } from "@/hooks/useResizableSize";
 
@@ -66,7 +66,11 @@ export const Route = createFileRoute("/study/$resourceId")({
 });
 
 /** True when the resource was created in-app (blank file) — content lives in a linked note. */
-function isEditableDocument(resource: { source?: string; isDownloaded?: boolean; localPath?: string | null }): boolean {
+function isEditableDocument(resource: {
+  source?: string;
+  isDownloaded?: boolean;
+  localPath?: string | null;
+}): boolean {
   return resource.source === "local" && !resource.isDownloaded && !resource.localPath;
 }
 
@@ -131,14 +135,28 @@ function StudyRoom() {
     max: 560,
     direction: "right",
   });
-  const [quizOpen, setQuizOpen] = useState(false);
-  const [genFc, setGenFc] = useState(false);
+  const [fcDialogOpen, setFcDialogOpen] = useState(false);
+  const [fcCount, setFcCount] = useState(8);
+  const [isGeneratingFc, setIsGeneratingFc] = useState(false);
   const videoControllerRef = useRef<VideoController | null>(null);
   const { elapsedSec } = useStudySession(resourceId);
 
   const resource = useLiveQuery(() => getDb().resources.get(resourceId), [resourceId]);
   const allResources = useLiveQuery(() => getDb().resources.toArray(), []) ?? [];
   const progress = useLiveQuery(() => getDb().progress.get(resourceId), [resourceId]);
+  const flashcards = useLiveQuery(
+    () => getDb().flashcards.where("resourceId").equals(resourceId).toArray(),
+    [resourceId],
+  );
+
+  const fcStats = useMemo(() => {
+    if (!flashcards) return { due: 0, total: 0 };
+    const now = Date.now();
+    return {
+      due: flashcards.filter((c) => c.dueAt <= now).length,
+      total: flashcards.length,
+    };
+  }, [flashcards]);
 
   // Session playlists take precedence. YouTube resources get a stable playlist
   // automatically, so opening any lesson still exposes the full course queue.
@@ -216,23 +234,25 @@ function StudyRoom() {
     videoControllerRef.current = controller;
   }, []);
 
-  const generateFlashcards = useCallback(async () => {
+  const generateFlashcards = useCallback(async (count: number) => {
     if (!resource) return;
-    setGenFc(true);
+    setIsGeneratingFc(true);
+    setFcDialogOpen(false);
     const tid = toast.loading("Generating flashcards from your summary…");
     try {
       const context = await buildResourceContext(resource);
       const media = await gatherResourceMedia(resource);
-      const result = await aiGenerateFlashcards(resource.name, context, resource.type, 8, media);
+      const result = await aiGenerateFlashcards(resource.name, context, resource.type, count, media);
       const added = await addFlashcards(resource.id, result.cards, "ai");
       toast.success(`Added ${added.length} flashcards`, { id: tid });
     } catch (err) {
       console.error(err);
       toast.error("Couldn't generate flashcards. Try again.", { id: tid });
     } finally {
-      setGenFc(false);
+      setIsGeneratingFc(false);
     }
   }, [resource]);
+
 
   const exportPdf = useCallback(async () => {
     if (!resource) return;
@@ -247,6 +267,10 @@ function StudyRoom() {
       lines.push(`Current resource: "${resource.name}" (${resource.type}, id ${resource.id}).`);
       if (resource.folderPath) lines.push(`Folder: ${resource.folderPath}`);
       lines.push(`Progress: ${progress?.status ?? "not started"}.`);
+      if (progress?.quizScore != null) lines.push(`Quiz score: ${progress.quizScore}%`);
+      if (progress?.timeSpentSeconds) {
+        lines.push(`Time studied: ${Math.round(progress.timeSpentSeconds / 60)} min`);
+      }
     }
     if (next) lines.push(`Next in playlist: "${next.name}".`);
     if (prev) lines.push(`Previous in playlist: "${prev.name}".`);
@@ -339,19 +363,31 @@ function StudyRoom() {
           return "Summary added to notes";
         }
         case "generate_flashcards":
-          await generateFlashcards();
-          return "Flashcards generated";
+          return "Flashcards generation is now available in the Command Palette or Flashcards tab.";
         case "generate_quiz": {
           if (!resource) throw new Error("No resource open");
           await generateQuizForResource(resource, { force: true });
-          setQuizOpen(true);
-          return "Quiz ready";
+          return "Quiz ready. Check the Quiz tab in the Notes panel.";
+        }
+        case "create_note_from_chat": {
+          const title = action.title || "Note from AI Chat";
+          const content = action.content || "";
+          const note = await createNote({
+            resourceId: resourceId,
+            dayNumber: null,
+            isGlobal: false,
+            title,
+            linkedTimestamp: null,
+          });
+          await updateNote(note.id, { contentMarkdown: content, content });
+          toast.success(`Note "${title}" created`);
+          return `Created note "${title}"`;
         }
         default:
           return "";
       }
     },
-    [allResources, navigate, next, prev, goNext, goPrev, resourceId, resource, generateFlashcards],
+    [allResources, navigate, next, prev, goNext, goPrev, resourceId, resource],
   );
 
   // Hotkeys
@@ -561,11 +597,8 @@ function StudyRoom() {
                 <Check className="mr-1 size-4" /> Mark as done
               </Button>
             )}
-            <Button size="sm" variant="outline" onClick={() => setQuizOpen(true)}>
-              <Sparkles className="mr-1 size-3.5" /> Quiz
-            </Button>
-            <Button size="sm" variant="outline" onClick={generateFlashcards} disabled={genFc}>
-              <Layers className="mr-1 size-3.5" /> {genFc ? "Generating…" : "Flashcards"}
+            <Button size="sm" variant="ghost" onClick={() => setFcDialogOpen(true)}>
+              <Layers className="mr-1 size-3.5" /> Generate Flashcards
             </Button>
             <Button asChild size="sm" variant="ghost">
               <RouterLink to="/flashcards">Review</RouterLink>
@@ -612,9 +645,36 @@ function StudyRoom() {
         </>
       )}
 
-      {quizOpen && <QuizModal resourceId={resource.id} onClose={() => setQuizOpen(false)} />}
       <PomodoroWidget />
       <AiDock resource={resource} buildSessionContext={buildSessionContext} runAction={runAction} />
+
+      <Dialog open={fcDialogOpen} onOpenChange={setFcDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>How many flashcards?</DialogTitle>
+            <DialogDescription>
+              Select how many flashcards you want the AI to generate based on this resource's context.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-2 py-4">
+            {[5, 10, 15, 20].map((c) => (
+              <Button
+                key={c}
+                variant={fcCount === c ? "default" : "outline"}
+                onClick={() => setFcCount(c)}
+              >
+                {c} Flashcards
+              </Button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setFcDialogOpen(false)}>Cancel</Button>
+            <Button disabled={isGeneratingFc} onClick={() => generateFlashcards(fcCount)}>
+              {isGeneratingFc ? "Generating..." : "Generate Flashcards"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

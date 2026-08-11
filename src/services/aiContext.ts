@@ -23,7 +23,7 @@ export async function buildResourceContext(
   options: ResourceContextOptions = {},
 ): Promise<string> {
   const db = getDb();
-  const maxChars = options.maxChars ?? 10000;
+  const maxChars = options.maxChars ?? 100000;
   const lines: string[] = [];
 
   lines.push(`Title: ${resource.name}`);
@@ -48,7 +48,7 @@ export async function buildResourceContext(
   }
   if (resource.transcriptText?.trim()) {
     lines.push(
-      `\nTranscript or source description:\n"""\n${resource.transcriptText.trim().slice(0, 10_000)}\n"""`,
+      `\nTranscript or source description:\n"""\n${resource.transcriptText.trim().slice(0, 100_000)}\n"""`,
     );
   } else if (resource.source === "youtube") {
     lines.push(

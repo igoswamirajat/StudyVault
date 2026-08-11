@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { getAllSettings, setSetting, SETTINGS_CHANGED_EVENT } from "@/services/storageService";
 import { DEFAULT_SETTINGS } from "@/db/schema";
+import { notify } from "@/lib/notify";
 
 export function useSettings() {
   const [settings, setSettings] = useState<Record<string, unknown>>(DEFAULT_SETTINGS);
@@ -13,6 +14,10 @@ export function useSettings() {
       setSettings(all);
     } catch (e) {
       console.error("[Settings] Failed to load settings, using defaults", e);
+      notify.dataIssue(
+        "Settings corrupted",
+        "Your settings were reset to defaults. API keys may need re-entering.",
+      );
       setSettings(DEFAULT_SETTINGS);
     } finally {
       setLoaded(true);
@@ -32,13 +37,10 @@ export function useSettings() {
     return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
   }, [refresh]);
 
-  const update = useCallback(
-    async (key: string, value: unknown) => {
-      await setSetting(key, value);
-      setSettings((prev) => ({ ...prev, [key]: value }));
-    },
-    [],
-  );
+  const update = useCallback(async (key: string, value: unknown) => {
+    await setSetting(key, value);
+    setSettings((prev) => ({ ...prev, [key]: value }));
+  }, []);
 
   return { settings, loaded, update, refresh };
 }

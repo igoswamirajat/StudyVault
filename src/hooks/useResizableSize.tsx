@@ -76,8 +76,8 @@ export function ResizeHandle({
       aria-orientation="vertical"
       onMouseDown={onMouseDown}
       className={cn(
-        "group h-full w-1 shrink-0 cursor-col-resize select-none",
-        side === "left" ? "-mr-1 border-r border-border" : "-ml-1 border-l border-border",
+        "group -mx-0.5 h-full w-1.5 shrink-0 cursor-col-resize select-none",
+        side === "left" ? "border-r border-border" : "border-l border-border",
         "hover:bg-primary/30 active:bg-primary/50",
       )}
     />

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { notify } from "@/lib/notify";
 
 interface Props {
   value: string;
@@ -10,7 +11,14 @@ interface Props {
   inputClassName?: string;
 }
 
-export function InlineRename({ value, editing, onCommit, onCancel, className, inputClassName }: Props) {
+export function InlineRename({
+  value,
+  editing,
+  onCommit,
+  onCancel,
+  className,
+  inputClassName,
+}: Props) {
   const [draft, setDraft] = useState(value);
   const [shake, setShake] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -44,8 +52,9 @@ export function InlineRename({ value, editing, onCommit, onCancel, className, in
       await onCommit(next);
     } catch (err) {
       fail();
-      // bubble nothing — caller toasts.
-      console.warn("rename failed:", err);
+      notify.error("Rename failed", {
+        description: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

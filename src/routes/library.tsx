@@ -1,8 +1,29 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Search, FileText, Film, FileCode, Image as ImageIcon, File, Grid3x3, List, Download, CheckCircle2, FolderSearch, Flame, Play, Clock } from "lucide-react";
-import { getDb, type Resource, type ResourceType, type RevisionFlag, type YoutubePlaylist } from "@/db/schema";
+import {
+  Search,
+  FileText,
+  Film,
+  FileCode,
+  Image as ImageIcon,
+  File,
+  Grid3x3,
+  List,
+  Download,
+  CheckCircle2,
+  FolderSearch,
+  Flame,
+  Play,
+  Clock,
+} from "lucide-react";
+import {
+  getDb,
+  type Resource,
+  type ResourceType,
+  type RevisionFlag,
+  type YoutubePlaylist,
+} from "@/db/schema";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,12 +39,25 @@ import { estimateResourceSeconds, formatEstimate, estimateTotalSeconds } from "@
 import { setPlaylist } from "@/lib/playlist";
 import { useAvailabilityFilter } from "@/hooks/useContentAvailability";
 import { toast } from "sonner";
+import { getSetting, setSetting } from "@/services/storageService";
 import { useFileSelection, makeSelectHandler } from "@/hooks/useFileSelection";
 import { ResourceContextMenu } from "@/components/files/ResourceContextMenu";
 import { MoveToFolderDialog } from "@/components/files/MoveToFolderDialog";
 import { InlineRename } from "@/components/files/InlineRename";
-import { trashResources, restoreResources, renameResource, moveResources } from "@/services/fileOpsService";
-
+import {
+  trashResources,
+  restoreResources,
+  renameResource,
+  moveResources,
+} from "@/services/fileOpsService";
+import {
+  SortFilterBar,
+  type SortKey,
+  type SortDir,
+  type FilterKey,
+  buildProgressMap,
+  sortResourcesByKey,
+} from "@/components/ui/SortFilterBar";
 
 export const Route = createFileRoute("/library")({
   component: () => (
@@ -33,22 +67,80 @@ export const Route = createFileRoute("/library")({
   ),
 });
 
-type FilterKey = "all" | "video" | "pdf" | "markdown" | "in_progress" | "completed" | "downloaded" | "revision" | "drive" | "telegram" | "youtube";
-
 function LibraryPage() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"grid" | "list">("grid");
-  const [sort, setSort] = useState<"day" | "name" | "recent">("day");
+  const [sort, setSort] = useState<SortKey>("day");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
 
-  const allResources = (useLiveQuery(() => getDb().resources.toArray(), []) ?? []);
+  // Load persisted preferences on mount
+  useEffect(() => {
+    void (async () => {
+      const [savedSort, savedSortDir, savedFilter, savedView] = await Promise.all([
+        getSetting<SortKey>("library_sort", "last_opened"),
+        getSetting<SortDir>("library_sortDir", "desc"),
+        getSetting<FilterKey>("library_filter", "all"),
+        getSetting<"grid" | "list">("library_view", "grid"),
+      ]);
+      setSort(savedSort ?? "last_opened");
+      setSortDir(savedSortDir ?? "desc");
+      setFilter(savedFilter ?? "all");
+      setView(savedView ?? "grid");
+      setPrefsLoaded(true);
+    })();
+  }, []);
+
+  // Save preferences on change (after initial load)
+  const updateSort = useCallback(
+    (v: SortKey) => {
+      setSort(v);
+      if (prefsLoaded) void setSetting("library_sort", v);
+    },
+    [prefsLoaded],
+  );
+
+  const updateSortDir = useCallback(
+    (v: SortDir) => {
+      setSortDir(v);
+      if (prefsLoaded) void setSetting("library_sortDir", v);
+    },
+    [prefsLoaded],
+  );
+
+  const updateFilter = useCallback(
+    (v: FilterKey) => {
+      setFilter(v);
+      if (prefsLoaded) void setSetting("library_filter", v);
+    },
+    [prefsLoaded],
+  );
+
+  const updateView = useCallback(
+    (v: "grid" | "list") => {
+      setView(v);
+      if (prefsLoaded) void setSetting("library_view", v);
+    },
+    [prefsLoaded],
+  );
+
+  const allResources = useLiveQuery(() => getDb().resources.toArray(), []) ?? [];
   const youtubePlaylists = useLiveQuery(() => getDb().youtube_playlists.toArray(), []) ?? [];
-  const resources = useMemo(() => allResources.filter((r) => (r.status ?? "active") === "active"), [allResources]);
+  const resources = useMemo(
+    () => allResources.filter((r) => (r.status ?? "active") === "active"),
+    [allResources],
+  );
 
-  const progress = (useLiveQuery(() => getDb().progress.toArray(), []) ?? []);
+  const progress = useLiveQuery(() => getDb().progress.toArray(), []) ?? [];
   const progressMap = useMemo(() => new Map(progress.map((p) => [p.resourceId, p])), [progress]);
-  const [streak, setStreak] = useState<{ current: number; longest: number; today: number }>({ current: 0, longest: 0, today: 0 });
+  const [streak, setStreak] = useState<{ current: number; longest: number; today: number }>({
+    current: 0,
+    longest: 0,
+    today: 0,
+  });
   useEffect(() => {
     void computeStreak().then(setStreak);
   }, [progress.length]);
@@ -59,42 +151,71 @@ function LibraryPage() {
   );
   const totalEstSeconds = useMemo(() => estimateTotalSeconds(resources), [resources]);
   const completedEstSeconds = useMemo(
-    () => estimateTotalSeconds(resources.filter((r) => progressMap.get(r.id)?.status === "completed")),
+    () =>
+      estimateTotalSeconds(resources.filter((r) => progressMap.get(r.id)?.status === "completed")),
     [resources, progressMap],
   );
   const remainingEstSeconds = Math.max(0, totalEstSeconds - completedEstSeconds);
 
   const [availability] = useAvailabilityFilter();
 
+  // Dynamic tags from all resources
+  const availableTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    for (const r of resources) {
+      if (r.tags) for (const t of r.tags) tagSet.add(t);
+    }
+    return [...tagSet].sort();
+  }, [resources]);
+
   const filtered = useMemo(() => {
     let r = resources.slice();
     if (availability === "offline") r = r.filter((x) => x.isDownloaded);
     else if (availability === "online") r = r.filter((x) => !x.isDownloaded);
-    if (filter === "video" || filter === "pdf" || filter === "markdown") r = r.filter((x) => x.type === filter);
+    if (filter === "video" || filter === "pdf" || filter === "markdown")
+      r = r.filter((x) => x.type === filter);
     if (filter === "downloaded") r = r.filter((x) => x.isDownloaded);
-    if (filter === "in_progress") r = r.filter((x) => progressMap.get(x.id)?.status === "in_progress");
+    if (filter === "in_progress")
+      r = r.filter((x) => progressMap.get(x.id)?.status === "in_progress");
     if (filter === "completed") r = r.filter((x) => progressMap.get(x.id)?.status === "completed");
     if (filter === "revision") r = r.filter((x) => x.revisionFlag && x.revisionFlag !== "done");
-    if (filter === "drive") r = r.filter((x) => (x.source ?? (x.driveId ? "drive" : "local")) === "drive");
+    if (filter === "drive")
+      r = r.filter((x) => (x.source ?? (x.driveId ? "drive" : "local")) === "drive");
     if (filter === "telegram") r = r.filter((x) => x.source === "telegram");
     if (filter === "youtube") r = r.filter((x) => x.source === "youtube");
+    if (selectedTags.length > 0) r = r.filter((x) => x.tags?.some((t) => selectedTags.includes(t)));
     if (query) r = r.filter((x) => x.name.toLowerCase().includes(query.toLowerCase()));
-    r.sort((a, b) => {
-      if (sort === "name") {
-        const aPath = a.folderPath ?? "";
-        const bPath = b.folderPath ?? "";
-        if (aPath !== bPath) return naturalCompare(aPath, bPath);
-        return naturalCompare(a.name, b.name);
-      }
-      if (sort === "recent") return (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0);
-      const da = a.dayAssignment ?? 9999;
-      const dbb = b.dayAssignment ?? 9999;
-      if (da !== dbb) return da - dbb;
-      if (a.orderIndex !== b.orderIndex) return a.orderIndex - b.orderIndex;
-      return naturalCompare(a.name, b.name);
-    });
+    r = sortResourcesByKey(r, sort, sortDir, progressMap);
     return r;
-  }, [resources, filter, query, sort, progressMap, availability]);
+  }, [resources, filter, query, sort, sortDir, selectedTags, progressMap, availability]);
+
+  // J/K keyboard navigation
+  const [focusedIdx, setFocusedIdx] = useState(-1);
+  useEffect(() => {
+    if (filtered.length === 0) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "j" && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setFocusedIdx((prev) => Math.min(prev + 1, filtered.length - 1));
+      }
+      if (e.key === "k" && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setFocusedIdx((prev) => Math.max(prev - 1, 0));
+      }
+      if (e.key === "Enter" && focusedIdx >= 0 && focusedIdx < filtered.length) {
+        e.preventDefault();
+        navigate({ to: "/study/$resourceId", params: { resourceId: filtered[focusedIdx].id } });
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [filtered, focusedIdx, navigate]);
+
+  // Reset focus when filters change
+  useEffect(() => {
+    setFocusedIdx(-1);
+  }, [filtered.length, filter, query, sort]);
 
   function startRevisionPlaylist() {
     const ids = resources
@@ -109,11 +230,15 @@ function LibraryPage() {
   }
 
   if (resources.length === 0) {
-    return youtubePlaylists.length > 0 ? <YoutubeOnlyLibrary playlists={youtubePlaylists} /> : <EmptyLibrary />;
+    return youtubePlaylists.length > 0 ? (
+      <YoutubeOnlyLibrary playlists={youtubePlaylists} />
+    ) : (
+      <EmptyLibrary />
+    );
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-10 px-4 py-8 sm:px-8 sm:py-10">
+    <div className="mx-auto w-full max-w-[1400px] space-y-10 p-6">
       {/* ── Heading ─────────────────────────────────────────────── */}
       <header className="flex flex-col gap-2">
         <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-muted-foreground">
@@ -130,15 +255,29 @@ function LibraryPage() {
       {/* ── Stats strip ────────────────────────────────────────── */}
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
         <DashboardStat label="Resources" value={resources.length} sub="imported" />
-        <DashboardStat label="Videos" value={resources.filter((r) => r.type === "video").length} sub="to watch" />
-        <DashboardStat label="PDFs" value={resources.filter((r) => r.type === "pdf").length} sub="to read" />
-        <DashboardStat label="Offline" value={resources.filter((r) => r.isDownloaded).length} sub="downloaded" />
+        <DashboardStat
+          label="Videos"
+          value={resources.filter((r) => r.type === "video").length}
+          sub="to watch"
+        />
+        <DashboardStat
+          label="PDFs"
+          value={resources.filter((r) => r.type === "pdf").length}
+          sub="to read"
+        />
+        <DashboardStat
+          label="Offline"
+          value={resources.filter((r) => r.isDownloaded).length}
+          sub="downloaded"
+        />
         <div className="flex flex-col justify-between gap-1 border border-border bg-surface-1 p-5 transition-colors hover:bg-background">
           <p className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.28em] text-muted-foreground">
             <Clock className="size-3.5" /> Time left
           </p>
           <p className="text-3xl font-black leading-none">{formatEstimate(remainingEstSeconds)}</p>
-          <p className="text-xs text-muted-foreground">of {formatEstimate(totalEstSeconds)} total</p>
+          <p className="text-xs text-muted-foreground">
+            of {formatEstimate(totalEstSeconds)} total
+          </p>
         </div>
         <div className="col-span-2 flex flex-col justify-between gap-1 border-2 border-foreground bg-primary p-5 shadow-[4px_4px_0_var(--foreground)] sm:col-span-4 lg:col-span-1">
           <p className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.28em]">
@@ -152,7 +291,7 @@ function LibraryPage() {
       </section>
 
       {/* ── Toolbar ────────────────────────────────────────────── */}
-      <section className="space-y-4">
+      <section className="sticky top-0 z-10 space-y-4 border-b border-border bg-background/95 py-4 backdrop-blur">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative max-w-md flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -164,26 +303,23 @@ function LibraryPage() {
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as typeof sort)}
-              className="h-11 border border-input bg-background px-3 text-sm font-medium"
-            >
-              <option value="day">Sort: By Day</option>
-              <option value="name">Sort: By Name</option>
-              <option value="recent">Sort: Recently Opened</option>
-            </select>
             <div className="flex h-11 border border-input">
               <button
-                onClick={() => setView("grid")}
-                className={cn("grid h-full w-11 place-items-center", view === "grid" && "bg-foreground text-background")}
+                onClick={() => updateView("grid")}
+                className={cn(
+                  "grid h-full w-11 place-items-center",
+                  view === "grid" && "bg-foreground text-background",
+                )}
                 aria-label="Grid view"
               >
                 <Grid3x3 className="size-4" />
               </button>
               <button
-                onClick={() => setView("list")}
-                className={cn("grid h-full w-11 place-items-center", view === "list" && "bg-foreground text-background")}
+                onClick={() => updateView("list")}
+                className={cn(
+                  "grid h-full w-11 place-items-center",
+                  view === "list" && "bg-foreground text-background",
+                )}
                 aria-label="List view"
               >
                 <List className="size-4" />
@@ -192,59 +328,25 @@ function LibraryPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          {(
-            [
-              ["all", "All"],
-              ["video", "Videos"],
-              ["pdf", "PDFs"],
-              ["markdown", "Notes"],
-              ["in_progress", "In progress"],
-              ["completed", "Completed"],
-              ["downloaded", "Downloaded"],
-              ["drive", "Drive"],
-              ["telegram", "Telegram"],
-              ["youtube", "YouTube"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setFilter(key)}
-              className={cn(
-                "border px-3 py-2 font-mono text-xs uppercase tracking-wider transition-colors",
-                filter === key
-                  ? "border-foreground bg-foreground text-background"
-                  : "border-border bg-surface-1 text-muted-foreground hover:bg-surface-2",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-          <button
-            onClick={() => setFilter("revision")}
-            className={cn(
-              "inline-flex items-center gap-1.5 border px-3 py-2 font-mono text-xs uppercase tracking-wider transition-colors",
-              filter === "revision"
-                ? "border-foreground bg-foreground text-background"
-                : "border-border bg-surface-1 text-muted-foreground hover:bg-surface-2",
-            )}
-          >
-            Revision
-            {flaggedCount > 0 && (
-              <span
-                className={cn(
-                  "rounded-sm px-1 py-px text-[10px] font-bold",
-                  filter === "revision" ? "bg-background text-foreground" : "bg-primary text-primary-foreground",
-                )}
-              >
-                {flaggedCount}
-              </span>
-            )}
-          </button>
+        <SortFilterBar
+          sort={sort}
+          sortDir={sortDir}
+          filter={filter}
+          availableTags={availableTags}
+          selectedTags={selectedTags}
+          flaggedCount={flaggedCount}
+          onSortChange={updateSort}
+          onSortDirChange={updateSortDir}
+          onFilterChange={updateFilter}
+          onTagsChange={setSelectedTags}
+          onRevisionClick={() => updateFilter(filter === "revision" ? "all" : "revision")}
+        />
+
+        <div className="flex justify-end">
           <button
             onClick={startRevisionPlaylist}
             disabled={flaggedCount === 0}
-            className="ml-auto inline-flex items-center gap-1.5 border-2 border-foreground bg-foreground px-3 py-2 font-mono text-xs uppercase tracking-wider text-background transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+            className="inline-flex items-center gap-1.5 border-2 border-foreground bg-foreground px-3 py-2 font-mono text-xs uppercase tracking-wider text-background transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
           >
             <Play className="size-3.5" /> Revision mode
           </button>
@@ -266,6 +368,7 @@ function LibraryPage() {
                 progress={progressMap.get(r.id)}
                 view="grid"
                 index={i}
+                focused={i === focusedIdx}
                 allIds={filtered.map((x) => x.id)}
               />
             ))}
@@ -279,12 +382,12 @@ function LibraryPage() {
                 progress={progressMap.get(r.id)}
                 view="list"
                 index={i}
+                focused={i === focusedIdx}
                 allIds={filtered.map((x) => x.id)}
               />
             ))}
           </div>
         )}
-
       </section>
     </div>
   );
@@ -292,12 +395,17 @@ function LibraryPage() {
 
 function YoutubeOnlyLibrary({ playlists }: { playlists: YoutubePlaylist[] }) {
   return (
-    <div className="mx-auto w-full max-w-[1100px] space-y-8 px-4 py-8 sm:px-8 sm:py-10">
+    <div className="mx-auto w-full max-w-[1100px] space-y-8 p-6">
       <header>
-        <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-muted-foreground">Your Library</p>
-        <h1 className="mt-2 text-4xl font-black uppercase leading-none tracking-tight sm:text-5xl">Playlists</h1>
+        <p className="font-mono text-[11px] uppercase tracking-[0.32em] text-muted-foreground">
+          Your Library
+        </p>
+        <h1 className="mt-2 text-4xl font-black uppercase leading-none tracking-tight sm:text-5xl">
+          Playlists
+        </h1>
         <p className="mt-3 max-w-xl text-sm text-muted-foreground">
-          These playlists use YouTube playback directly. Enhance any playlist later for lesson-level StudyVault features.
+          These playlists use YouTube playback directly. Enhance any playlist later for lesson-level
+          StudyVault features.
         </p>
       </header>
       <YoutubePlaylistShelf playlists={playlists} />
@@ -309,7 +417,9 @@ function YoutubePlaylistShelf({ playlists }: { playlists: YoutubePlaylist[] }) {
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-muted-foreground">YouTube playlists</p>
+        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-muted-foreground">
+          YouTube playlists
+        </p>
         <span className="text-xs text-muted-foreground">{playlists.length} saved</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -326,7 +436,9 @@ function YoutubePlaylistShelf({ playlists }: { playlists: YoutubePlaylist[] }) {
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold">{playlist.title}</span>
               <span className="mt-1 block text-xs text-muted-foreground">
-                {playlist.mode === "expanded" ? `${playlist.videoCount ?? 0} lessons` : "Privacy-first playback"}
+                {playlist.mode === "expanded"
+                  ? `${playlist.videoCount ?? 0} lessons`
+                  : "Privacy-first playback"}
               </span>
             </span>
           </Link>
@@ -338,7 +450,15 @@ function YoutubePlaylistShelf({ playlists }: { playlists: YoutubePlaylist[] }) {
 
 function ResourceIcon({ type, className }: { type: ResourceType; className?: string }) {
   const Icon =
-    type === "video" ? Film : type === "pdf" ? FileText : type === "markdown" ? FileCode : type === "image" ? ImageIcon : File;
+    type === "video"
+      ? Film
+      : type === "pdf"
+        ? FileText
+        : type === "markdown"
+          ? FileCode
+          : type === "image"
+            ? ImageIcon
+            : File;
   return <Icon className={className} />;
 }
 
@@ -347,12 +467,14 @@ function LibraryItem({
   progress,
   view,
   index,
+  focused,
   allIds,
 }: {
   resource: Resource;
   progress?: { status: string; videoProgressSeconds?: number };
   view: "grid" | "list";
   index: number;
+  focused: boolean;
   allIds: string[];
 }) {
   const navigate = useNavigate();
@@ -372,7 +494,8 @@ function LibraryItem({
   }
 
   async function handleTrash() {
-    const target = sel.isSelected(resource.id) && sel.count > 1 ? Array.from(sel.selected) : [resource.id];
+    const target =
+      sel.isSelected(resource.id) && sel.count > 1 ? Array.from(sel.selected) : [resource.id];
     await trashResources(target);
     sel.clear();
     toast(`Moved ${target.length} to trash`, {
@@ -389,36 +512,39 @@ function LibraryItem({
 
   const selected = sel.isSelected(resource.id);
 
-  const inner = view === "grid" ? (
-    <ResourceCard
-      resource={resource}
-      progress={progress}
-      onClick={() => {}}
-      index={index}
-      selected={selected}
-      renaming={renaming}
-      onCommitRename={async (name) => {
-        await renameResource(resource.id, name);
-        setRenaming(false);
-        toast.success("Renamed");
-      }}
-      onCancelRename={() => setRenaming(false)}
-    />
-  ) : (
-    <ResourceRow
-      resource={resource}
-      progress={progress}
-      onClick={() => {}}
-      selected={selected}
-      renaming={renaming}
-      onCommitRename={async (name) => {
-        await renameResource(resource.id, name);
-        setRenaming(false);
-        toast.success("Renamed");
-      }}
-      onCancelRename={() => setRenaming(false)}
-    />
-  );
+  const inner =
+    view === "grid" ? (
+      <ResourceCard
+        resource={resource}
+        progress={progress}
+        onClick={() => {}}
+        index={index}
+        selected={selected}
+        focused={focused}
+        renaming={renaming}
+        onCommitRename={async (name) => {
+          await renameResource(resource.id, name);
+          setRenaming(false);
+          toast.success("Renamed");
+        }}
+        onCancelRename={() => setRenaming(false)}
+      />
+    ) : (
+      <ResourceRow
+        resource={resource}
+        progress={progress}
+        onClick={() => {}}
+        selected={selected}
+        focused={focused}
+        renaming={renaming}
+        onCommitRename={async (name) => {
+          await renameResource(resource.id, name);
+          setRenaming(false);
+          toast.success("Renamed");
+        }}
+        onCancelRename={() => setRenaming(false)}
+      />
+    );
 
   return (
     <>
@@ -437,7 +563,8 @@ function LibraryItem({
         open={moveOpen}
         onOpenChange={setMoveOpen}
         onConfirm={async (path) => {
-          const target = sel.isSelected(resource.id) && sel.count > 1 ? Array.from(sel.selected) : [resource.id];
+          const target =
+            sel.isSelected(resource.id) && sel.count > 1 ? Array.from(sel.selected) : [resource.id];
           await moveResources(target, path);
           toast.success(`Moved ${target.length} item${target.length > 1 ? "s" : ""}`);
           sel.clear();
@@ -447,14 +574,13 @@ function LibraryItem({
   );
 }
 
-
-
 function ResourceCard({
   resource,
   progress,
   onClick,
   index,
   selected = false,
+  focused = false,
   renaming = false,
   onCommitRename,
   onCancelRename,
@@ -464,6 +590,7 @@ function ResourceCard({
   onClick: () => void;
   index: number;
   selected?: boolean;
+  focused?: boolean;
   renaming?: boolean;
   onCommitRename?: (name: string) => Promise<void> | void;
   onCancelRename?: () => void;
@@ -491,10 +618,13 @@ function ResourceCard({
       }}
       className={cn(
         "group flex cursor-pointer flex-col overflow-hidden border bg-surface-1 text-left transition-colors hover:bg-background hover:shadow-[6px_6px_0_var(--foreground)]",
-        selected ? "border-[1.5px] border-primary bg-primary/[0.06]" : "border-border",
+        selected
+          ? "border-[1.5px] border-primary bg-primary/[0.06]"
+          : focused
+            ? "border-[1.5px] border-foreground/50"
+            : "border-border",
       )}
     >
-
       <div className="relative aspect-video bg-surface-2">
         {showThumb ? (
           <img
@@ -515,7 +645,9 @@ function ResourceCard({
             {resource.type}
           </Badge>
           {resource.dayAssignment != null && (
-            <Badge className="bg-primary/80 text-primary-foreground">Day {resource.dayAssignment}</Badge>
+            <Badge className="bg-primary/80 text-primary-foreground">
+              Day {resource.dayAssignment}
+            </Badge>
           )}
           {resource.source === "youtube" && (
             <Badge className="bg-[#ff0033]/90 text-white">YouTube</Badge>
@@ -530,7 +662,10 @@ function ResourceCard({
           <RevisionFlagButton resourceId={resource.id} flag={resource.revisionFlag} />
         </div>
         {resource.isDownloaded && (
-          <div className="absolute right-2 bottom-2 bg-foreground/80 p-1 backdrop-blur" title="Available offline">
+          <div
+            className="absolute right-2 bottom-2 bg-foreground/80 p-1 backdrop-blur"
+            title="Available offline"
+          >
             <Download className="size-3 text-background" />
           </div>
         )}
@@ -547,10 +682,11 @@ function ResourceCard({
             />
           </div>
         ) : (
-          <p className="line-clamp-2 text-base font-black leading-snug tracking-tight">{resource.name}</p>
+          <p className="line-clamp-2 text-base font-black leading-snug tracking-tight">
+            {resource.name}
+          </p>
         )}
         <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-
           <span className="inline-flex items-center gap-1">
             <Clock className="size-3" />
             {resource.durationSeconds
@@ -576,6 +712,7 @@ function ResourceRow({
   progress,
   onClick,
   selected = false,
+  focused = false,
   renaming = false,
   onCommitRename,
   onCancelRename,
@@ -584,6 +721,7 @@ function ResourceRow({
   progress?: { status: string };
   onClick: () => void;
   selected?: boolean;
+  focused?: boolean;
   renaming?: boolean;
   onCommitRename?: (name: string) => Promise<void> | void;
   onCancelRename?: () => void;
@@ -602,7 +740,11 @@ function ResourceRow({
       }}
       className={cn(
         "flex w-full cursor-pointer items-center gap-3 border bg-surface-1 p-3 text-left transition-colors hover:bg-surface-2",
-        selected ? "border-[1.5px] border-primary bg-primary/[0.06]" : "border-border",
+        selected
+          ? "border-[1.5px] border-primary bg-primary/[0.06]"
+          : focused
+            ? "border-[1.5px] border-foreground/50"
+            : "border-border",
       )}
     >
       <ResourceIcon type={resource.type} className="size-5 shrink-0 text-muted-foreground" />
@@ -621,7 +763,8 @@ function ResourceRow({
           <p className="truncate text-sm font-medium">{resource.name}</p>
         )}
         <p className="text-xs text-muted-foreground">
-          {resource.dayAssignment != null ? `Day ${resource.dayAssignment}` : "Unassigned"} · {resource.type}
+          {resource.dayAssignment != null ? `Day ${resource.dayAssignment}` : "Unassigned"} ·{" "}
+          {resource.type}
           {est > 0 && <span> · ~{formatEstimate(est)}</span>}
         </p>
       </div>
@@ -632,7 +775,6 @@ function ResourceRow({
   );
 }
 
-
 function EmptyLibrary() {
   const navigate = useNavigate();
   return (
@@ -642,9 +784,9 @@ function EmptyLibrary() {
       </div>
       <h2 className="mb-2 text-2xl font-black uppercase tracking-tight">No resources yet</h2>
       <p className="mb-6 max-w-sm text-sm text-muted-foreground">
-         Connect a source to start building your study library.
+        Connect a source to start building your study library.
       </p>
-       <Button onClick={() => navigate({ to: "/onboarding" })}>Add course source</Button>
+      <Button onClick={() => navigate({ to: "/onboarding" })}>Add course source</Button>
     </div>
   );
 }
@@ -652,7 +794,9 @@ function EmptyLibrary() {
 function DashboardStat({ label, value, sub }: { label: string; value: number; sub: string }) {
   return (
     <div className="flex flex-col justify-between gap-1 border border-border bg-surface-1 p-5 transition-colors hover:bg-background">
-      <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-muted-foreground">{label}</p>
+      <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-muted-foreground">
+        {label}
+      </p>
       <p className="text-5xl font-black leading-none">{value}</p>
       <p className="text-xs text-muted-foreground">{sub}</p>
     </div>

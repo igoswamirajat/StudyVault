@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ExternalLink, Play } from "lucide-react";
 import { HighlightCapture } from "./HighlightCapture";
 import { MarkdownRenderer } from "@/components/notes/MarkdownRenderer";
+import { runSafeJavaScript } from "@/lib/safe-js-runner";
 
 function DrivePreviewFrame({ resource, hint }: { resource: Resource; hint: string }) {
   return (
@@ -199,18 +200,13 @@ function EditableTextResource({
     setOutput("");
     setError(null);
     try {
-      const logs: string[] = [];
-      const originalLog = console.log;
-      console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
-      let result: unknown;
-      try {
-        // eslint-disable-next-line no-eval
-        result = eval(content);
-      } finally {
-        console.log = originalLog;
+      const { logs, error, durationMs } = await runSafeJavaScript(content);
+      if (error) {
+        setError(error);
+      } else {
+        const out = logs.length > 0 ? logs.join("\n") : "(no output)";
+        setOutput(`${out}\n\n// finished in ${durationMs}ms (isolated worker)`);
       }
-      if (result !== undefined) logs.push(String(result));
-      setOutput(logs.join("\n") || "(no output)");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

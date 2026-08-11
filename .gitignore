@@ -39,3 +39,6 @@ dist-ssr
 public/pyodide/
 public/pyodide/*
 !public/pyodide/.gitkeep
+
+#notes
+mypersonalnotes.txt
