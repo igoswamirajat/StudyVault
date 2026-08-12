@@ -1,143 +1,86 @@
-# StudyVault Central
+<div align="center">
+  <img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExYzJmZTBhYmRjMWJkZTRiZTcwNjBkZGU3NGE2MjBiYWRmZmZlNWFlMCZlcD12MV9pbnRlcm5hbF9naWZzX2dpZklkJmN0PWc/3o7TKSjRrfIPjeiVyM/giphy.gif" width="150" alt="Cute Study Anime Gif" />
+  
+  # 🌟 StudyVault Central 🌟
+  
+  **Your magical, local-first, AI-powered study universe! 🚀✨**
 
-A personal study room built for students who organise their learning material on Google Drive. Import your Drive folders, study PDFs, videos, and documents in one place, take notes, track progress, and quiz yourself — all without leaving the app.
-
----
-
-## Why This Exists
-
-Most students dump their study material across random Drive folders and then jump between tabs to study — Drive for files, Notion for notes, YouTube for videos, some random PDF viewer, a separate flashcard app. StudyVault Central pulls everything into one focused interface so you can actually sit down and study instead of managing tools.
-
----
-
-## Features
-
-### Google Drive Integration
-- Paste any public Google Drive folder URL to import all your study material
-- Scans the folder and pulls in every file automatically
-- Works without an API key for top-level files
-- Add a Drive API key to unlock subfolder recursion and proper file type detection
-- Supports PDFs, videos, markdown files, HTML, and images
-
-### Study Room
-- Dedicated viewer for each file type — PDF reader with page navigation and zoom, video player with playback controls, markdown and HTML renderer, image viewer
-- Keyboard shortcuts throughout: `Space` pause/resume video, `←/→` seek, `F` fullscreen, `Shift+←/→` previous/next resource, `Ctrl+Enter` mark done and advance, `N` toggle notes panel
-- Left sidebar shows all resources in the current folder so you can navigate without leaving
-- Study session timer tracks how long you spend on each resource
-- Pomodoro widget built in
-
-### Notes
-- Rich text editor (TipTap) with formatting toolbar — bold, italic, headings, lists, code blocks, blockquotes, links
-- Undo/redo with `Ctrl+Z` / `Ctrl+Y`
-- Summary note per resource — auto-populated when you save highlights from the viewer
-- Timestamp linking — click "Timestamp" while watching a video to insert the current time into your note; click it later to jump back
-- Page reference linking for PDFs
-- Backlinks — see every note that references the current resource with `[[resource name]]` syntax
-- Day notes and global notes alongside resource-specific notes
-
-### Library
-- All your imported resources in one view
-- Organised by Drive folder path
-- Context menu for rename, move, delete, download
-- Multi-select with bulk actions
-- Drag and drop to reorder
-- Inline rename
-
-### Progress Tracking
-- Mark resources as not started, in progress, or completed
-- Progress overview across all your material
-- Streak tracking for daily study habit
-- Recharts-based visual breakdown
-
-### Flashcards
-- Create flashcard decks manually
-- Spaced repetition review session
-- Linked to resources so you can review cards for what you're currently studying
-
-### Organizer
-- Assign resources to study days
-- Plan your study schedule across a course or subject
-
-### Workspaces
-- Separate workspaces for different subjects or courses
-- Each workspace has its own Drive folder, resources, notes, and progress — completely isolated
-
-### Offline Support
-- Download any resource to local storage for offline access
-- Works in Chromium-based browsers with the File System Access API
-- Electron desktop wrapper included for full offline capability
-
-### Command Palette
-- `Ctrl+K` / `Cmd+K` to search and jump to any resource, note, or page instantly
-
-### Export
-- Export resource summary notes as PDF
+  [![Status](https://img.shields.io/badge/Status-Active-purple.svg)]()
+  [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Mac%20%7C%20Linux-blue.svg)]()
+  [![AI Powered](https://img.shields.io/badge/AI-Powered-FF69B4.svg)]()
+</div>
 
 ---
 
-## Tech Stack
+## 🌸 What is StudyVault & Why do I need it?
 
-| Layer | Tech |
-|---|---|
-| Framework | TanStack Start (React, SSR) |
-| Routing | TanStack Router (file-based) |
-| Styling | Tailwind CSS + Radix UI |
-| Editor | TipTap |
-| Database | Dexie (IndexedDB, runs in browser) |
-| Charts | Recharts |
-| PDF | react-pdf / pdfjs |
-| Drag & Drop | dnd-kit |
-| Desktop | Electron |
+Let's be real for a second. We've all been there: you sit down to study, and suddenly you have 47 Chrome tabs open, 3 different PDF viewers, a YouTube video playing on a loop, and a Notion page that is starting to look like a chaotic digital spiderweb. 🕸️ 
+
+Oh, and let's not forget the monthly subscriptions just to get AI to summarize a lecture for you. *Ew.* 🤢
+
+**Enter StudyVault Central!** 🎉
+
+StudyVault is an all-in-one, **local-first** desktop application built to make learning *fun*, *fast*, and *completely private*. Instead of juggling apps, StudyVault brings your entire academic life into one gorgeous, hyper-optimized vault that lives on *your* machine. No cloud forced-syncs, no subscriptions, just pure, unadulterated productivity! 🧈✨
 
 ---
 
-## Getting Started
+## ✨ The Superpower Features!
 
-### Prerequisites
-- Node.js 18+ or Bun
-- A Google account with study material in a **public** Google Drive folder
+### 📚 The Smart Library
+Drag and drop your PDFs, lecture videos, and notes right into the vault. StudyVault organizes your materials automatically, tracking your exact reading progress and video timestamps. Never lose your place in a textbook ever again!
 
-### Install & Run
+### ▶️ Distraction-Free YouTube
+Say goodbye to falling down the YouTube recommended rabbit hole. 🐇 With our YouTube integration, you can import entire playlists and watch them straight inside your Study Room. You get the knowledge, zero distractions. 🍿📖
 
-```bash
-# Clone the repo
-git clone https://github.com/igoswamirajat/StudyVault.git
-cd StudyVault
+### 📝 Beautiful Notion-Style Notebooks
+Why use a basic text editor when you can have a gorgeous, block-based notebook? Format your thoughts, highlight the important bits, and organize everything into infinite folders.
 
-# Install dependencies
-npm install
-if this fails use:
-npm install --legacy-peer-deps
-# or
-bun install
+### 🧠 Bring-Your-Own-AI Magic
+We integrated AI directly into your workflow, but with a twist: **You control the keys.** Plug in any OpenAI-compatible API (or Google's Gemini!) and let the AI do the heavy lifting:
+- **Instant Summaries:** TL;DR your hardest PDFs in seconds.
+- **Smart Quizzes & Flashcards:** The AI reads your notes and auto-generates pop quizzes and flashcards with beautiful flip animations to test your memory! 🪄
+- **Doubt Buster:** Stuck on a concept? The in-session assistant acts like your personal 24/7 tutor.
 
-# Start the dev server
-npm run dev
-# or
-bun dev
-```
-
-Open `http://localhost:8081` in your browser.
-
-### First Time Setup
-1. Open the app — you'll land on the Onboarding page
-2. Paste a public Google Drive folder URL
-3. Click **Scan Folder** — your files will be imported
-4. Optionally add a Google Drive API key for subfolder support
-5. Head to the Library and start studying
-
-### Google Drive API Key (Optional)
-Required only if your folder has subfolders or you want accurate file type detection.
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a project → Enable the **Google Drive API**
-3. Create an API key under Credentials
-4. Paste it in the Onboarding page or Settings
+### 🔒 Paranoid-Level Privacy & Backups
+Because StudyVault is local-first, your data belongs to **you**. But we didn't stop there. We added a fully encrypted automatic daily backup system! Set a master password, and your entire database is securely exported every day. 🛡️
 
 ---
 
-## Notes
+## 🛠️ The Geeky Stuff (Tech Stack)
+Built for speed and buttery smooth animations!
+- **Framework:** TanStack Start & React ⚛️
+- **Styling:** TailwindCSS & Framer Motion (for that extra *pizzazz* ✨)
+- **Database:** IndexedDB (Local-First Architecture)
+- **Desktop Wrapper:** Electron 🖥️
 
-- All data is stored locally in your browser's IndexedDB — nothing is sent to any server
-- The app is designed for personal use with your own Drive material
-- AI features are planned but not yet live due to API pricing — coming in a later build
+---
+
+## 🚀 How to Launch Your Vault
+
+Ready to become an absolute academic weapon? Let's go! ⚔️
+
+1. **Clone the repo!**
+   ```bash
+   git clone https://github.com/igoswamirajat/StudyVault.git
+   cd StudyVault
+   ```
+2. **Install the magic dependencies!** 🪄
+   ```bash
+   npm install
+   ```
+3. **Run the developer preview:**
+   ```bash
+   npm run dev
+   ```
+4. **Build the Final Desktop App (Electron):** 🖥️
+   ```bash
+   npm run build:electron
+   ```
+
+---
+
+<div align="center">
+  <i>Built with ❤️ for students everywhere!</i>
+  <br/>
+  <img src="https://media.giphy.com/media/26AHONQ79FdWZhAI0/giphy.gif" width="200" alt="Hugging Gif" />
+</div>
