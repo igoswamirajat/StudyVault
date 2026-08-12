@@ -43,7 +43,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { onHighlight, onViewerState } from "@/lib/viewer-bus";
 import { Link as RouterLink } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { MarkdownRenderer } from "./MarkdownRenderer";
 import { QuizTabContent } from "@/components/quiz/QuizTabContent";
 
 interface Props {
@@ -398,12 +397,6 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                 </span>
               </div>
 
-              {previewMode ? (
-                <MarkdownRenderer
-                  markdown={summary.contentMarkdown}
-                  className="min-h-[140px] px-3 py-2"
-                />
-              ) : (
                 <TipTapEditor
                   key={summary.id}
                   value={summary.content}
@@ -415,7 +408,6 @@ export function NotesPanel({ resource, resourceId, dayNumber, onSeekVideo, getVi
                   previewMarkdown={summary.contentMarkdown}
                   onTogglePreview={() => setPreviewMode((value) => !value)}
                 />
-              )}
 
               {/* Backlinks */}
               <div className="border-t border-border pt-3">

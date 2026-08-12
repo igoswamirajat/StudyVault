@@ -413,6 +413,7 @@ export async function aiGenerateLearningJourney(): Promise<LearningJourney> {
             name: r.name,
             type: r.type,
             folderPath: r.folderPath,
+            addedAt: r.addedAt,
           })),
           notes: notes.map((n) => ({
             id: n.id,

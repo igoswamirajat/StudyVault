@@ -48,6 +48,23 @@ export async function getDirectoryHandle(): Promise<FileSystemDirectoryHandle | 
   }
 }
 
+export async function getDirectoryHandleSilent(): Promise<FileSystemDirectoryHandle | null> {
+  const row = await getDb().settings.get(HANDLE_KEY);
+  if (!row) return null;
+  const handle = row.value as FileSystemDirectoryHandle;
+  if (!handle) return null;
+  try {
+    const anyHandle = handle as unknown as {
+      queryPermission?: (opts: { mode: "readwrite" }) => Promise<PermissionState>;
+    };
+    const perm = (await anyHandle.queryPermission?.({ mode: "readwrite" })) ?? "granted";
+    if (perm === "granted") return handle;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function downloadResourceToLocal(
   resourceId: string,
   onProgress?: (p: number) => void,

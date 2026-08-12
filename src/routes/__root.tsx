@@ -16,6 +16,7 @@ import { Toaster } from "../components/ui/sonner";
 import { useAutoBackup } from "../hooks/useAutoBackup";
 import { installGlobalErrorHandlers } from "../lib/global-error-handler";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
+import { syncNotesFromLocalFolder } from "../services/notesService";
 
 function NotFoundComponent() {
   return (
@@ -123,6 +124,7 @@ function RootComponent() {
   useAutoBackup();
   useEffect(() => {
     installGlobalErrorHandlers();
+    syncNotesFromLocalFolder(true).catch(console.error);
   }, []);
 
   return (

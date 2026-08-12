@@ -1,5 +1,87 @@
 import { nanoid } from "nanoid";
 import { getDb, type Note, type Resource } from "@/db/schema";
+import { getDirectoryHandle, getDirectoryHandleSilent } from "./fileSystemService";
+
+/** Helper to mirror notes to the local File System API if enabled */
+async function syncNoteToLocalFolder(note: Note) {
+  try {
+    const handle = await getDirectoryHandle();
+    if (!handle) return;
+
+    const notesFolder = await handle.getDirectoryHandle("Notes", { create: true });
+    if (notesFolder) {
+      const safeTitle = note.title.replace(/[\\/:*?"<>|]/g, "_").substring(0, 50);
+      const filename = `${safeTitle}-${note.id}.json`;
+      
+      const fileHandle = await notesFolder.getFileHandle(filename, { create: true });
+      const writable = await (fileHandle as any).createWritable();
+      await writable.write(JSON.stringify(note, null, 2));
+      await writable.close();
+    }
+  } catch (err) {
+    console.error("Failed to sync note to local folder", err);
+  }
+}
+
+async function deleteNoteFromLocalFolder(note: Note) {
+  try {
+    const handle = await getDirectoryHandle();
+    if (!handle) return;
+
+    const notesFolder = await handle.getDirectoryHandle("Notes", { create: true });
+    if (notesFolder) {
+      const safeTitle = note.title.replace(/[\\/:*?"<>|]/g, "_").substring(0, 50);
+      const filename = `${safeTitle}-${note.id}.json`;
+      await notesFolder.removeEntry(filename);
+    }
+  } catch (err) {
+    console.error("Failed to delete note from local folder", err);
+  }
+}
+
+/** 
+ * Scans the local "Notes" folder for .json files and updates IndexedDB. 
+ * Resolves conflicts by taking the most recently updated version.
+ */
+export async function syncNotesFromLocalFolder(silent = true) {
+  try {
+    const handle = silent ? await getDirectoryHandleSilent() : await getDirectoryHandle();
+    if (!handle) return;
+
+    const notesFolder = await handle.getDirectoryHandle("Notes", { create: true });
+    if (!notesFolder) return;
+
+    const db = getDb();
+    let imported = 0;
+
+    for await (const entry of (notesFolder as any).values()) {
+      if (entry.kind === "file" && entry.name.endsWith(".json")) {
+        try {
+          const fileHandle = await notesFolder.getFileHandle(entry.name);
+          const file = await fileHandle.getFile();
+          const text = await file.text();
+          const noteData = JSON.parse(text) as Note;
+
+          if (noteData.id && noteData.updatedAt) {
+            const existing = await db.notes.get(noteData.id);
+            if (!existing || existing.updatedAt < noteData.updatedAt) {
+              await db.notes.put(noteData);
+              imported++;
+            }
+          }
+        } catch (e) {
+          console.error(`Failed to parse local note file: ${entry.name}`, e);
+        }
+      }
+    }
+    
+    if (imported > 0 && !silent) {
+      console.log(`Synced ${imported} notes from local folder.`);
+    }
+  } catch (err) {
+    console.error("Failed to sync notes from local folder", err);
+  }
+}
 
 export async function createNote(partial: Partial<Note>): Promise<Note> {
   const now = Date.now();
@@ -19,6 +101,7 @@ export async function createNote(partial: Partial<Note>): Promise<Note> {
     ownerId: "local",
   };
   await getDb().notes.put(note);
+  syncNoteToLocalFolder(note).catch(console.error); // Fire and forget sync
   return note;
 }
 
@@ -26,11 +109,18 @@ export async function updateNote(id: string, patch: Partial<Note>): Promise<void
   const db = getDb();
   const existing = await db.notes.get(id);
   if (!existing) return;
-  await db.notes.put({ ...existing, ...patch, updatedAt: Date.now() });
+  const updated = { ...existing, ...patch, updatedAt: Date.now() };
+  await db.notes.put(updated);
+  syncNoteToLocalFolder(updated).catch(console.error);
 }
 
 export async function deleteNote(id: string): Promise<void> {
-  await getDb().notes.delete(id);
+  const db = getDb();
+  const note = await db.notes.get(id);
+  if (note) {
+    await db.notes.delete(id);
+    deleteNoteFromLocalFolder(note).catch(console.error);
+  }
 }
 
 export async function listNotesForResource(resourceId: string): Promise<Note[]> {
@@ -118,6 +208,7 @@ export async function getOrCreateSummary(resource: Resource): Promise<Note> {
       ownerId: "local",
     };
     await db.notes.put(note);
+    syncNoteToLocalFolder(note).catch(console.error);
     return note;
   });
 }
@@ -164,12 +255,14 @@ export async function appendHighlightToSummary(
         },
       ],
     });
-    await db.notes.put({
+    const updatedNote = {
       ...summary,
       content: JSON.stringify(doc),
       contentMarkdown: newMd,
       updatedAt: Date.now(),
-    });
+    };
+    await db.notes.put(updatedNote);
+    syncNoteToLocalFolder(updatedNote).catch(console.error);
   });
 }
 

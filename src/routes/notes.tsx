@@ -7,8 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, Search, Trash2, FileText, Download } from "lucide-react";
 import { NewContentMenu } from "@/components/common/NewContentMenu";
-import { BlockNoteEditor } from "@/components/notes/BlockNoteEditor";
-import { MarkdownRenderer } from "@/components/notes/MarkdownRenderer";
+import { TipTapEditor } from "@/components/notes/TipTapEditor";
 import { createNote, updateNote, deleteNote } from "@/services/notesService";
 import { useResizableSize, ResizeHandle } from "@/hooks/useResizableSize";
 import { formatDistanceToNow } from "date-fns";
@@ -164,11 +163,13 @@ function NotesPage() {
               </Button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
-              {previewMode ? (
-                <MarkdownRenderer markdown={active.contentMarkdown} className="min-h-[140px]" />
-              ) : (
-                <BlockNoteEditor value={active.content} onChange={handleChange} />
-              )}
+              <TipTapEditor 
+                value={active.content} 
+                onChange={handleChange} 
+                previewMode={previewMode}
+                previewMarkdown={active.contentMarkdown}
+                onTogglePreview={() => setPreviewMode((value) => !value)}
+              />
             </div>
           </>
         ) : (

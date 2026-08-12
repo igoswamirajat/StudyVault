@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
@@ -30,9 +30,13 @@ import {
   Braces,
   Eye,
   Pencil,
+  SquareDashedBottomCode,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MarkdownRenderer } from "./MarkdownRenderer";
+import { SvgNode } from "./extensions/SvgNode";
+import { SandboxNode } from "./extensions/SandboxNode";
+import { CodeSnippetDialog } from "./CodeSnippetDialog";
+import { safeParseJson } from "@/lib/json";
 
 const lowlight = createLowlight(common);
 
@@ -62,6 +66,7 @@ export function TipTapEditor({
 }: Props) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const [snippetDialogOpen, setSnippetDialogOpen] = useState(false);
 
   const editor = useEditor({
     extensions: [
@@ -78,26 +83,85 @@ export function TipTapEditor({
       TaskItem.configure({ nested: true }),
       Placeholder.configure({ placeholder: placeholder ?? "Start typing your note…" }),
       Markdown.configure({
-        html: false,
+        html: true,
         linkify: true,
         transformPastedText: true,
         transformCopiedText: false,
       }),
+      SvgNode,
+      SandboxNode,
     ],
     content: value ? (safeParseJson(value) as object) : "",
     autofocus: autoFocus,
     onUpdate({ editor }) {
       const json = JSON.stringify(editor.getJSON());
-      // Prefer markdown serialization when available so notes round-trip as MD.
-      const storage = (editor.storage as unknown as { markdown?: { getMarkdown: () => string } })
-        .markdown;
-      const md = storage?.getMarkdown ? storage.getMarkdown() : editor.getText();
-      onChangeRef.current(json, md);
+      onChangeRef.current(json, "");
     },
     editorProps: {
       attributes: {
         class:
           "prose prose-invert prose-sm max-w-none min-h-[140px] focus:outline-none px-3 py-2 break-words",
+      },
+      handlePaste(view, event) {
+        const text = event.clipboardData?.getData("text/plain");
+        if (!text) return false;
+
+        // Regex to match <svg>...</svg> and <html...>...</html> or <!DOCTYPE html>...</html>
+        // [\s\S]*? is non-greedy match for any character including newlines
+        const svgRegex = /(<svg[\s\S]*?<\/svg>)/gi;
+        const htmlRegex = /(<!DOCTYPE html>[\s\S]*?<\/html>|<html[\s\S]*?<\/html>)/gi;
+
+        const hasSvg = svgRegex.test(text);
+        const hasHtml = htmlRegex.test(text);
+
+        if (!hasSvg && !hasHtml) {
+          return false; // Let TipTap handle normal text
+        }
+
+        // We found rich content! Let's parse it out.
+        // A simple way is to tokenize the string into chunks of (text | svg | html)
+        // For simplicity and robustness, we can combine regexes or parse sequentially.
+        const combinedRegex = /(<svg[\s\S]*?<\/svg>|<!DOCTYPE html>[\s\S]*?<\/html>|<html[\s\S]*?<\/html>)/gi;
+        
+        let lastIndex = 0;
+        let match;
+        const { state, dispatch } = view;
+        let tr = state.tr;
+        
+        // Delete current selection before pasting
+        tr = tr.deleteSelection();
+        let pos = tr.selection.from;
+
+        while ((match = combinedRegex.exec(text)) !== null) {
+          // Insert any text before the match
+          if (match.index > lastIndex) {
+            const beforeText = text.substring(lastIndex, match.index);
+            tr = tr.insertText(beforeText, pos);
+            pos += beforeText.length;
+          }
+          
+          const richContent = match[0];
+          
+          if (richContent.toLowerCase().startsWith("<svg")) {
+            const node = state.schema.nodes.svgNode.create({ svg: richContent });
+            tr = tr.insert(pos, node);
+            pos += node.nodeSize;
+          } else {
+            const node = state.schema.nodes.sandboxNode.create({ code: richContent });
+            tr = tr.insert(pos, node);
+            pos += node.nodeSize;
+          }
+          
+          lastIndex = combinedRegex.lastIndex;
+        }
+
+        // Insert any remaining text
+        if (lastIndex < text.length) {
+          tr = tr.insertText(text.substring(lastIndex), pos);
+        }
+
+        dispatch(tr);
+        return true;
       },
     },
     immediatelyRender: false,
@@ -112,6 +176,13 @@ export function TipTapEditor({
     }
   }, [value, editor]);
 
+  // Handle read-only (preview) mode natively
+  useEffect(() => {
+    if (editor) {
+      editor.setEditable(!previewMode);
+    }
+  }, [previewMode, editor]);
+
   // Expose the editor instance once mounted.
   useEffect(() => {
     if (editor && onReady) onReady(editor);
@@ -122,121 +193,131 @@ export function TipTapEditor({
   return (
     <div className="flex flex-col rounded-md border border-border bg-surface-1">
       <div className="flex flex-wrap items-center gap-0.5 border-b border-border p-1">
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleBold().run()}
-          active={editor.isActive("bold")}
-          aria-label="Bold"
-        >
-          <Bold className="size-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleItalic().run()}
-          active={editor.isActive("italic")}
-          aria-label="Italic"
-        >
-          <Italic className="size-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleStrike().run()}
-          active={editor.isActive("strike")}
-          aria-label="Strikethrough"
-        >
-          <Strikethrough className="size-3.5" />
-        </ToolbarBtn>
-        <span className="mx-1 h-4 w-px bg-border" />
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-          active={editor.isActive("heading", { level: 1 })}
-          aria-label="Heading 1"
-        >
-          <Heading1 className="size-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-          active={editor.isActive("heading", { level: 2 })}
-          aria-label="Heading 2"
-        >
-          <Heading2 className="size-3.5" />
-        </ToolbarBtn>
-        <span className="mx-1 h-4 w-px bg-border" />
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-          active={editor.isActive("bulletList")}
-          aria-label="Bullet list"
-        >
-          <List className="size-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          active={editor.isActive("orderedList")}
-          aria-label="Ordered list"
-        >
-          <ListOrdered className="size-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleBlockquote().run()}
-          active={editor.isActive("blockquote")}
-          aria-label="Quote"
-        >
-          <Quote className="size-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-          active={editor.isActive("codeBlock")}
-          aria-label="Code block"
-        >
-          <Braces className="size-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleCode().run()}
-          active={editor.isActive("code")}
-          aria-label="Inline code"
-        >
-          <Code className="size-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => editor.chain().focus().toggleTaskList().run()}
-          active={editor.isActive("taskList")}
-          aria-label="Task list"
-        >
-          <CheckSquare className="size-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() =>
-            editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
-          }
-          active={editor.isActive("table")}
-          aria-label="Table"
-        >
-          <TableIcon className="size-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => {
-            const url = window.prompt("URL");
-            if (url) editor.chain().focus().setLink({ href: url }).run();
-          }}
-          active={editor.isActive("link")}
-          aria-label="Link"
-        >
-          <LinkIcon className="size-3.5" />
-        </ToolbarBtn>
-        <span className="mx-1 h-4 w-px bg-border" />
+        {!previewMode && (
+          <>
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleBold().run()}
+              active={editor.isActive("bold")}
+              aria-label="Bold"
+            >
+              <Bold className="size-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleItalic().run()}
+              active={editor.isActive("italic")}
+              aria-label="Italic"
+            >
+              <Italic className="size-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleStrike().run()}
+              active={editor.isActive("strike")}
+              aria-label="Strikethrough"
+            >
+              <Strikethrough className="size-3.5" />
+            </ToolbarBtn>
+            <span className="mx-1 h-4 w-px bg-border" />
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+              active={editor.isActive("heading", { level: 1 })}
+              aria-label="Heading 1"
+            >
+              <Heading1 className="size-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+              active={editor.isActive("heading", { level: 2 })}
+              aria-label="Heading 2"
+            >
+              <Heading2 className="size-3.5" />
+            </ToolbarBtn>
+            <span className="mx-1 h-4 w-px bg-border" />
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleBulletList().run()}
+              active={editor.isActive("bulletList")}
+              aria-label="Bullet list"
+            >
+              <List className="size-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleOrderedList().run()}
+              active={editor.isActive("orderedList")}
+              aria-label="Ordered list"
+            >
+              <ListOrdered className="size-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleBlockquote().run()}
+              active={editor.isActive("blockquote")}
+              aria-label="Quote"
+            >
+              <Quote className="size-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+              active={editor.isActive("codeBlock")}
+              aria-label="Code block"
+            >
+              <Braces className="size-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleCode().run()}
+              active={editor.isActive("code")}
+              aria-label="Inline code"
+            >
+              <Code className="size-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => editor.chain().focus().toggleTaskList().run()}
+              active={editor.isActive("taskList")}
+              aria-label="Task list"
+            >
+              <CheckSquare className="size-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() =>
+                editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+              }
+              active={editor.isActive("table")}
+              aria-label="Table"
+            >
+              <TableIcon className="size-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => {
+                const url = window.prompt("URL");
+                if (url) editor.chain().focus().setLink({ href: url }).run();
+              }}
+              active={editor.isActive("link")}
+              aria-label="Link"
+            >
+              <LinkIcon className="size-3.5" />
+            </ToolbarBtn>
+            <ToolbarBtn
+              onClick={() => setSnippetDialogOpen(true)}
+              aria-label="Insert Rich Component"
+            >
+              <SquareDashedBottomCode className="size-3.5" />
+            </ToolbarBtn>
+            <span className="mx-1 h-4 w-px bg-border" />
+          </>
+        )}
         <ToolbarBtn
           onClick={() => onTogglePreview?.()}
-          aria-label={previewMode ? "Edit note" : "Render markdown"}
+          aria-label={previewMode ? "Edit note" : "Preview note"}
         >
           {previewMode ? <Pencil className="size-3.5" /> : <Eye className="size-3.5" />}
         </ToolbarBtn>
       </div>
-      {previewMode ? (
-        <div className={cn("overflow-y-auto px-3 py-2", maxHeightClassName)}>
-          <MarkdownRenderer markdown={previewMarkdown ?? ""} />
-        </div>
-      ) : (
-        <div className={cn("overflow-y-auto overflow-x-hidden", maxHeightClassName)}>
-          <EditorContent editor={editor} />
-        </div>
-      )}
+      <div className={cn("overflow-y-auto overflow-x-hidden", maxHeightClassName)}>
+        <EditorContent editor={editor} />
+      </div>
+
+      <CodeSnippetDialog 
+        open={snippetDialogOpen} 
+        onOpenChange={setSnippetDialogOpen} 
+        editor={editor} 
+      />
     </div>
   );
 }
