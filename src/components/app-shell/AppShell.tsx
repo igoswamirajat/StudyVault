@@ -36,6 +36,7 @@ import { resetDbCache } from "@/db/schema";
 import { FocusBox } from "@/components/study/FocusBox";
 import { FileSelectionProvider } from "@/hooks/useFileSelection";
 import { SelectionToolbar } from "@/components/files/SelectionToolbar";
+import { useButterScroll } from "@/components/ui/butter-scroll";
 
 const PRIMARY_NAV = [
   { to: "/library", label: "Library", icon: LibraryIcon },
@@ -78,6 +79,9 @@ function AppShellInner({ children }: { children: ReactNode }) {
   const [decisionPending, setDecisionPending] = useState(true);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [wsName, setWsName] = useState("");
+  const mainRef = useRef<HTMLElement>(null);
+
+  useButterScroll(mainRef, { lerp: 0.12 });
 
   // Track active workspace via storage event (other tabs) + custom event.
   useEffect(() => {
@@ -471,23 +475,21 @@ function AppShellInner({ children }: { children: ReactNode }) {
       </header>
 
       <main
+        ref={mainRef}
         className={cn(
           "flex min-h-0 min-w-0 flex-1 flex-col",
           isFixedRoute ? "overflow-hidden" : "overflow-y-auto overscroll-contain",
         )}
       >
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={pathname}
-            initial={{ opacity: 0, y: 14, filter: "blur(6px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={{ opacity: 0, y: -10, filter: "blur(4px)" }}
-            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            className="min-h-0 flex-1"
-          >
-            {children}
-          </motion.div>
-        </AnimatePresence>
+        <motion.div
+          key={pathname}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          {children}
+        </motion.div>
       </main>
 
       {!isFixedRoute && (

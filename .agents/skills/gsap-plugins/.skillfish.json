@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "gsap-plugins",
+  "owner": "greensock",
+  "repo": "gsap-skills",
+  "path": "skills/gsap-plugins",
+  "branch": "main",
+  "sha": "e31ccbdb75cf41f0e7df0fec567f6e07956eaca9",
+  "source": "manual"
+}

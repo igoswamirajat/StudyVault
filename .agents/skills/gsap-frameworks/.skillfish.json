@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "gsap-frameworks",
+  "owner": "greensock",
+  "repo": "gsap-skills",
+  "path": "skills/gsap-frameworks",
+  "branch": "main",
+  "sha": "5b086fa623be801882128fa16b2a9b446d193029",
+  "source": "manual"
+}

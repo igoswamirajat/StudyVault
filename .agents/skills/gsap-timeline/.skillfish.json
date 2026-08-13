@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "gsap-timeline",
+  "owner": "greensock",
+  "repo": "gsap-skills",
+  "path": "skills/gsap-timeline",
+  "branch": "main",
+  "sha": "37eb5d623c3e14367864d57160acb64f13950994",
+  "source": "manual"
+}

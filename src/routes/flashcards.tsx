@@ -46,9 +46,9 @@ function FlashcardsPage() {
 
   useEffect(() => {
     if (queueIds === null && allCards.length > 0) {
-      setQueueIds(dueCards.map((c) => c.id));
+      setQueueIds(dueCards.length > 0 ? dueCards.map((c) => c.id) : allCards.map((c) => c.id));
     }
-  }, [allCards.length, queueIds, dueCards]);
+  }, [allCards, queueIds, dueCards]);
 
   const current: Flashcard | undefined = useMemo(() => {
     if (!queueIds || queueIds.length === 0) return undefined;

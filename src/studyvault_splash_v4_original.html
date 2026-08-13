@@ -1,0 +1,126 @@
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  .splash {
+    width: 100%; min-height: 420px;
+    background: #0e0e0e;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 36px; border-radius: 12px;
+    overflow: hidden; position: relative;
+  }
+  .logo-row {
+    display: flex; align-items: center; gap: 13px;
+  }
+  .logo-text {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 22px; font-weight: 600;
+    letter-spacing: 0.08em; color: #f0f0f0;
+  }
+  canvas { display: block; }
+  .loading-label {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 11px; letter-spacing: 0.22em;
+    color: rgba(255,255,255,0.25);
+    text-transform: uppercase;
+    transition: opacity 0.35s ease;
+  }
+</style>
+
+<div class="splash">
+  <div class="logo-row">
+    <canvas id="c" width="44" height="44"></canvas>
+    <span class="logo-text">STUDYVAULT</span>
+  </div>
+
+  <canvas id="main" width="220" height="120"></canvas>
+
+  <div class="loading-label" id="lbl">Opening the vault</div>
+</div>
+
+<script>
+const msgs = ['Opening the vault','Loading your workspace','Almost ready','Syncing your data'];
+let mi = 0;
+const lbl = document.getElementById('lbl');
+setInterval(() => {
+  lbl.style.opacity = 0;
+  setTimeout(() => { mi=(mi+1)%msgs.length; lbl.textContent=msgs[mi]; lbl.style.opacity=''; }, 380);
+}, 2800);
+
+/* ── LOGO ICON CANVAS (44x44) ── */
+const lc = document.getElementById('c');
+const lx = lc.getContext('2d');
+let lt = 0;
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y); ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r); ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h); ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r); ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.closePath();
+}
+
+function drawLogo(t) {
+  lx.clearRect(0,0,44,44);
+  lx.fillStyle = '#1a1a1a';
+  roundRect(lx,0,0,44,44,10); lx.fill();
+
+  const pulse = 1 + Math.sin(t*0.04)*0.06;
+  const cx=22, cy=22, s=13*pulse;
+  lx.save(); lx.translate(cx,cy);
+  lx.rotate(Math.sin(t*0.025)*0.18);
+  lx.fillStyle='#6b5fff';
+  roundRect(lx,-s,-s,s*2,s*2,5*pulse); lx.fill();
+
+  lx.fillStyle='rgba(255,255,255,0.15)';
+  roundRect(lx,-s,-s,s*2*0.55,s*2*0.55,3); lx.fill();
+  lx.restore();
+}
+
+/* ── MAIN ANIMATION CANVAS (220x120) ── */
+const mc = document.getElementById('main');
+const mx = mc.getContext('2d');
+
+/*
+  4 mini squares that orbit a center point in a figure-8 / clover path
+  Each square is offset 90° apart — they trail each other
+  Cute because they look like they're chasing each other
+*/
+const N = 4;
+const colors = ['#6b5fff','#8b7fff','#5040dd','#9d90ff'];
+const sizes  = [16, 12, 9, 7];
+
+function cloverX(t, r) { return r * Math.sin(t) * Math.cos(t); }
+function cloverY(t, r) { return r * Math.sin(t); }
+
+function drawMain(t) {
+  mx.clearRect(0,0,220,120);
+  const cx=110, cy=60, r=38;
+
+  for(let i=N-1; i>=0; i--) {
+    const angle = t*0.022 - i*0.55;
+    const x = cx + cloverX(angle, r);
+    const y = cy + cloverY(angle, r*0.55);
+    const sz = sizes[i];
+    const alpha = 1 - i*0.18;
+
+    mx.globalAlpha = alpha;
+    mx.fillStyle = colors[i];
+    const rr = 3 + i*0.5;
+    roundRect(mx, x-sz/2, y-sz/2, sz, sz, rr);
+    mx.fill();
+  }
+  mx.globalAlpha = 1;
+}
+
+/* ── LOOP ── */
+function loop(t) {
+  drawLogo(t);
+  drawMain(t);
+  lt = t;
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>

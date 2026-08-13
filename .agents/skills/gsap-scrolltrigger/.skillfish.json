@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "gsap-scrolltrigger",
+  "owner": "greensock",
+  "repo": "gsap-skills",
+  "path": "skills/gsap-scrolltrigger",
+  "branch": "main",
+  "sha": "7838f515e05bfab0a79dd63368a409ddc7d76ee6",
+  "source": "manual"
+}

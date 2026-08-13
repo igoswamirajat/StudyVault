@@ -10,7 +10,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
-    "build:electron": "set NITRO_PRESET=node-server && npm run build && electron-builder",
+    "build:electron": "set \"NITRO_PRESET=node-server\"&& npm run build && electron-builder",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
@@ -40,7 +40,8 @@
       "package.json"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": true,
