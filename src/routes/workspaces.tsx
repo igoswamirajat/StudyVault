@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
-import { Plus, ArrowRight, Trash2, LogIn, Sparkles } from "lucide-react";
+import { Plus, ArrowRight, Trash2, LogIn, Sparkles, Upload } from "lucide-react";
 import { ClientOnly } from "@/components/common/ClientOnly";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import {
 import { resetDbCache } from "@/db/schema";
 import { forceSaveCurrentWorkspace, loadWorkspaceFromDisk } from "@/lib/durable-storage";
 import { toast } from "sonner";
+import { importFullBackup } from "@/services/exportService";
 
 export const Route = createFileRoute("/workspaces")({
   component: () => (
@@ -30,6 +31,7 @@ function WorkspacesPage() {
   const [list, setList] = useState<Workspace[]>([]);
   const [name, setName] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const refresh = () => {
     setList(listWorkspaces());
@@ -59,6 +61,37 @@ function WorkspacesPage() {
     resetDbCache();
     toast.success(`Created ${ws.name}`);
     window.location.assign("/onboarding");
+  }
+
+  async function handleRestoreFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("Invalid JSON format");
+      }
+      
+      if (!data.version && !data.settings && !data.resources) {
+        throw new Error("This file does not appear to be a StudyVault backup. Did you select a single note by mistake?");
+      }
+
+      const wsName = file.name.replace(".json", "").replace("studyvault-backup", "Restored Backup").trim() || "Restored Backup";
+      const ws = createWorkspace(wsName);
+      setActiveWorkspace(ws.id);
+      resetDbCache();
+      const t = toast.loading("Restoring backup...");
+      await importFullBackup(file);
+      toast.success("Backup restored successfully!", { id: t });
+      window.location.assign("/library");
+    } catch (err) {
+      toast.error("Failed to restore backup: " + (err as Error).message);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }
 
   async function remove(id: string, label: string) {
@@ -163,6 +196,27 @@ function WorkspacesPage() {
               <Sparkles className="mr-1 inline size-3" /> Each workspace stores data in its own
               local database. Deleting one wipes only that workspace.
             </p>
+          </div>
+
+          {/* Restore */}
+          <div className="border-t border-border pt-5 mt-6">
+            <p className="mb-2 font-mono text-xs uppercase tracking-widest text-muted-foreground">
+              Or restore an existing backup
+            </p>
+            <input
+              type="file"
+              accept=".json"
+              ref={fileInputRef}
+              onChange={handleRestoreFile}
+              className="hidden"
+            />
+            <Button 
+              variant="secondary" 
+              className="w-full h-11 font-bold uppercase tracking-wider text-xs" 
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="mr-2 size-4" /> Restore from backup file
+            </Button>
           </div>
 
           {activeId && list.length > 0 && (

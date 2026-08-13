@@ -1,13 +1,13 @@
 import Dexie, { type Table } from "dexie";
 import { dbNameForActiveWorkspace } from "@/services/workspaceService";
 
-export type ResourceType = "video" | "pdf" | "markdown" | "html" | "image" | "other";
+export type ResourceType = "video" | "pdf" | "markdown" | "html" | "image" | "audio" | "web" | "other";
 
 export type RevisionFlag = "important" | "revision" | "difficult" | "done";
 
 export type ResourceStatus = "active" | "trashed";
 
-export type ResourceSource = "drive" | "telegram" | "local" | "youtube";
+export type ResourceSource = "drive" | "telegram" | "local" | "youtube" | "web";
 
 export interface Resource {
   id: string;
@@ -46,6 +46,8 @@ export interface Resource {
   youtubeIndex?: number | null;
   youtubeChannelTitle?: string | null;
   youtubePublishedAt?: string | null;
+  // v13: web article extraction
+  url?: string | null;
 }
 
 export interface Day {
@@ -78,6 +80,7 @@ export interface Progress {
   timeSpentSeconds: number;
   videoProgressSeconds: number;
   quizScore: number | null;
+  feynmanScore: number | null;
   nextReviewDate?: number | null;
 }
 
@@ -93,6 +96,19 @@ export interface StudySession {
 export interface VideoProgress {
   resourceId: string;
   currentTime: number;
+  updatedAt: number;
+}
+
+export interface FocusHistory {
+  date: string; // YYYY-MM-DD
+  tasks: Array<{
+    id: string;
+    text: string;
+    type?: "day" | "folder" | "resource" | "text";
+    referenceId?: string | number;
+    done: boolean;
+  }>;
+  createdAt: number;
   updatedAt: number;
 }
 
@@ -147,7 +163,7 @@ export interface FolderRow {
   name: string;
   parentPath: string;
   createdAt: number;
-  source: "drive" | "user" | "telegram" | "youtube";
+  source: "drive" | "user" | "telegram" | "youtube" | "web";
   // v7
   color?: string | null;
   icon?: string | null;
@@ -242,6 +258,7 @@ export class StudyVaultDB extends Dexie {
   youtube_playlists!: Table<YoutubePlaylist, string>;
   notebooks!: Table<Notebook, string>;
   notebook_cells!: Table<NotebookCell, string>;
+  focus_history!: Table<FocusHistory, string>;
 
   constructor(dbName: string) {
     super(dbName);
@@ -331,6 +348,18 @@ export class StudyVaultDB extends Dexie {
           if (c.linkedTimestamp === undefined) c.linkedTimestamp = null;
         });
       });
+    this.version(13)
+      .stores({
+        progress: "resourceId, dayNumber, status, completedAt, feynmanScore",
+      })
+      .upgrade(async (tx) => {
+        await tx.table("progress").toCollection().modify((p: Progress) => {
+          if (p.feynmanScore === undefined) p.feynmanScore = null;
+        });
+      });
+    this.version(14).stores({
+      focus_history: "date",
+    });
   }
 }
 

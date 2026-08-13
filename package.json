@@ -1,5 +1,8 @@
 {
-  "name": "tanstack_start_ts",
+  "name": "studyvault",
+  "version": "1.0.0",
+  "description": "StudyVault - A local-first study platform",
+  "author": "Rajat Goswami",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -7,9 +10,34 @@
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "build:electron": "npm run build && electron-builder",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
+  },
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.studyvault.app",
+    "productName": "StudyVault",
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false,
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": true
+    }
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.82",
@@ -97,6 +125,7 @@
     "recharts": "^3.9.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
+    "sharp": "^0.35.3",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",

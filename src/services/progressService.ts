@@ -18,6 +18,7 @@ export async function getOrCreateProgress(resourceId: string): Promise<Progress>
       timeSpentSeconds: 0,
       videoProgressSeconds: 0,
       quizScore: null,
+      feynmanScore: null,
     };
     await db.progress.put(fresh);
     return fresh;
@@ -107,4 +108,83 @@ export async function getHeatmapData(days = 90): Promise<{ date: string; seconds
 
 export function daysSince(timestamp: number): number {
   return differenceInCalendarDays(new Date(), timestamp);
+}
+
+export interface GamificationStats {
+  xp: number;
+  level: number;
+  levelName: string;
+  nextLevelXp: number;
+  stars: number;
+}
+
+const LEVEL_NAMES = [
+  "Novice",
+  "Apprentice",
+  "Scholar",
+  "Adept",
+  "Expert",
+  "Master",
+  "Grandmaster",
+  "Sage"
+];
+
+export async function getGamificationStats(): Promise<GamificationStats> {
+  const db = getDb();
+  const progressList = await db.progress.toArray();
+  const days = await db.days.toArray();
+  const resources = await db.resources.toArray();
+
+  let xp = 0;
+  let stars = 0;
+
+  for (const p of progressList) {
+    if (p.status === "completed") {
+      xp += 15; // Base XP for finishing a resource
+    }
+    if (p.quizScore !== null) {
+      xp += 5; // Taking a quiz
+      if (p.quizScore >= 80) stars += 1;
+      if (p.quizScore === 100) xp += 10;
+    }
+    if (p.feynmanScore !== null) {
+      xp += 10; // Taking feynman
+      if (p.feynmanScore >= 80) stars += 1;
+    }
+  }
+
+  // Planner Bonus: Check if all resources in a day are completed
+  for (const d of days) {
+    const dayResources = resources.filter(r => r.dayAssignment === d.number);
+    if (dayResources.length > 0) {
+      const isCompleted = dayResources.every(r => progressList.find(p => p.resourceId === r.id)?.status === "completed");
+      if (isCompleted) {
+        xp += 50; // Planner bonus
+        stars += 1;
+      }
+    }
+  }
+
+  // XP scaling formula: each level takes progressively more XP
+  // Level 1: 0-100
+  // Level 2: 100-250
+  // Level 3: 250-450
+  // Level 4: 450-700
+  let level = 1;
+  let nextLevelXp = 100;
+  let currentLevelBase = 0;
+  
+  while (xp >= nextLevelXp) {
+    level++;
+    currentLevelBase = nextLevelXp;
+    nextLevelXp = currentLevelBase + (100 + (level - 1) * 50);
+  }
+
+  return {
+    xp,
+    level,
+    levelName: LEVEL_NAMES[Math.min(level - 1, LEVEL_NAMES.length - 1)],
+    nextLevelXp,
+    stars
+  };
 }

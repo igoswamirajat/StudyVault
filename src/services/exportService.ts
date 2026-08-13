@@ -178,9 +178,9 @@ export async function exportProgressCsv() {
   );
 }
 
-export async function exportFullBackup() {
+export async function generateFullBackupData() {
   const db = getDb();
-  const data = {
+  return {
     version: 1,
     exportedAt: new Date().toISOString(),
     resources: await db.resources.toArray(),
@@ -192,54 +192,50 @@ export async function exportFullBackup() {
     pdf_annotations: await db.pdf_annotations.toArray(),
     bookmarks: await db.bookmarks.toArray(),
     quizzes: await db.quizzes.toArray(),
+    flashcards: await db.flashcards?.toArray().catch(() => []),
+    folders: await db.folders?.toArray().catch(() => []),
+    file_operations_log: await db.file_operations_log?.toArray().catch(() => []),
+    focus_history: await db.focus_history?.toArray().catch(() => []),
     settings: await db.settings.toArray(),
-    youtube_playlists: await db.youtube_playlists.toArray(),
-    notebooks: await db.notebooks.toArray(),
-    notebook_cells: await db.notebook_cells.toArray(),
+    youtube_playlists: await db.youtube_playlists?.toArray().catch(() => []),
+    notebooks: await db.notebooks?.toArray().catch(() => []),
+    notebook_cells: await db.notebook_cells?.toArray().catch(() => []),
   };
+}
+
+export async function exportFullBackup() {
+  const data = await generateFullBackupData();
+  const jsonString = JSON.stringify(data, null, 2);
+
   saveAs(
-    new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+    new Blob([jsonString], { type: "application/json" }),
     `studyvault-backup-${format(new Date(), "yyyyMMdd-HHmm")}.json`,
   );
 }
 
 export async function importFullBackup(file: File) {
   const text = await file.text();
-  const data = JSON.parse(text);
+  let data: any;
+
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    throw new Error("Invalid backup file format");
+  }
+
   const db = getDb();
+  
+  if (!data.version || (!data.resources && !data.settings)) {
+    throw new Error("This file does not appear to be a StudyVault full backup. Make sure you selected the correct file.");
+  }
+
   await db.transaction(
     "rw",
-    [
-      db.resources,
-      db.days,
-      db.notes,
-      db.progress,
-      db.study_sessions,
-      db.video_progress,
-      db.pdf_annotations,
-      db.bookmarks,
-      db.quizzes,
-      db.settings,
-      db.youtube_playlists,
-      db.notebooks,
-      db.notebook_cells,
-    ],
+    db.tables,
     async () => {
-      await Promise.all([
-        db.resources.clear(),
-        db.days.clear(),
-        db.notes.clear(),
-        db.progress.clear(),
-        db.study_sessions.clear(),
-        db.video_progress.clear(),
-        db.pdf_annotations.clear(),
-        db.bookmarks.clear(),
-        db.quizzes.clear(),
-        db.settings.clear(),
-        db.youtube_playlists.clear(),
-        db.notebooks.clear(),
-        db.notebook_cells.clear(),
-      ]);
+      // Clear all existing data
+      await Promise.all(db.tables.map(table => table.clear()));
+
       if (data.resources) await db.resources.bulkPut(data.resources);
       if (data.days) await db.days.bulkPut(data.days);
       if (data.notes) await db.notes.bulkPut(data.notes);
@@ -249,10 +245,14 @@ export async function importFullBackup(file: File) {
       if (data.pdf_annotations) await db.pdf_annotations.bulkPut(data.pdf_annotations);
       if (data.bookmarks) await db.bookmarks.bulkPut(data.bookmarks);
       if (data.quizzes) await db.quizzes.bulkPut(data.quizzes);
+      if (data.flashcards && db.flashcards) await db.flashcards.bulkPut(data.flashcards);
+      if (data.folders && db.folders) await db.folders.bulkPut(data.folders);
+      if (data.file_operations_log && db.file_operations_log) await db.file_operations_log.bulkPut(data.file_operations_log);
+      if (data.focus_history && db.focus_history) await db.focus_history.bulkPut(data.focus_history);
       if (data.settings) await db.settings.bulkPut(data.settings);
-      if (data.youtube_playlists) await db.youtube_playlists.bulkPut(data.youtube_playlists);
-      if (data.notebooks) await db.notebooks.bulkPut(data.notebooks);
-      if (data.notebook_cells) await db.notebook_cells.bulkPut(data.notebook_cells);
+      if (data.youtube_playlists && db.youtube_playlists) await db.youtube_playlists.bulkPut(data.youtube_playlists);
+      if (data.notebooks && db.notebooks) await db.notebooks.bulkPut(data.notebooks);
+      if (data.notebook_cells && db.notebook_cells) await db.notebook_cells.bulkPut(data.notebook_cells);
     },
   );
 }

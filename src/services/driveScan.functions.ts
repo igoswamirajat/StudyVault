@@ -33,7 +33,7 @@ async function fetchEmbedHtml(folderId: string): Promise<string> {
  * embed view does not expose subfolders). Returns the parsed file list.
  */
 export const scanDriveEmbedServerFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => Input.parse(data))
+  .validator((data: unknown) => Input.parse(data))
   .handler(async ({ data }): Promise<ScannedFile[]> => {
     const html = await fetchEmbedHtml(data.folderId);
     return parseEmbedHtml(html, data.folderId);
@@ -47,7 +47,7 @@ export interface EmbedHealth {
 
 /** Lightweight probe of a public folder via the server-side embed proxy. */
 export const checkDriveEmbedServerFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => Input.parse(data))
+  .validator((data: unknown) => Input.parse(data))
   .handler(async ({ data }): Promise<EmbedHealth> => {
     try {
       const html = await fetchEmbedHtml(data.folderId);

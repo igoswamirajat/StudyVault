@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useSettings } from "./useSettings";
-import { performAutoBackup, checkForNewerBackup, getBackupHandle } from "@/services/autoBackupService";
+import { performAutoBackup, checkForNewerBackup, getBackupHandle, checkBackupPermission, requestBackupPermission } from "@/services/autoBackupService";
+import { importFullBackup } from "@/services/exportService";
 import { toast } from "sonner";
 
 const BACKUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -17,16 +18,53 @@ export function useAutoBackup() {
       return;
     }
 
-    // Check for newer backup on mount (once)
+    // Check permissions and newer backups on mount
     if (!checkedRef.current) {
       checkedRef.current = true;
-      void checkForNewerBackup().then(({ hasNewer, backupAt }) => {
-        if (hasNewer) {
-          toast.info(`A newer backup exists (${backupAt}). Restore it from Settings > Auto-Backup.`, {
-            duration: 10_000,
+      
+      void checkBackupPermission().then((perm) => {
+        if (perm === "prompt") {
+          toast.warning("Auto-Backup is paused. Click to restore folder access.", {
+            duration: Infinity,
+            action: {
+              label: "Grant Access",
+              onClick: () => {
+                void requestBackupPermission().then((granted) => {
+                  if (granted) {
+                    toast.success("Folder access restored!");
+                    checkNewer();
+                  } else {
+                    toast.error("Access denied.");
+                  }
+                });
+              }
+            }
           });
+        } else if (perm === "granted") {
+          checkNewer();
         }
       });
+      
+      const checkNewer = () => {
+        void checkForNewerBackup().then(({ hasNewer, backupAt, file }) => {
+          if (hasNewer && file) {
+            toast.info(`A newer backup exists from another session (${backupAt}).`, {
+              duration: Infinity,
+              action: {
+                label: "Restore Now",
+                onClick: () => {
+                  void importFullBackup(file).then(() => {
+                    toast.success("Backup restored successfully!");
+                    window.location.reload();
+                  }).catch(e => {
+                    toast.error("Failed to restore: " + e.message);
+                  });
+                }
+              }
+            });
+          }
+        });
+      };
     }
 
     const doBackup = async () => {

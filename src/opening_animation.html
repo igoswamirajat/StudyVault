@@ -1,0 +1,241 @@
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  .splash {
+    width: 100%;
+    min-height: 420px;
+    background: #0e0e0e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .logo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  /* Outer dark rounded square */
+  .logo-icon {
+    width: 44px;
+    height: 44px;
+    background: #1a1a1a;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  /* Inner purple rounded square */
+  .logo-inner {
+    width: 26px;
+    height: 26px;
+    background: #6b5fff;
+    border-radius: 6px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .logo-sheen {
+    position: absolute;
+    top: -100%;
+    left: -60%;
+    width: 60%;
+    height: 300%;
+    background: rgba(255,255,255,0.22);
+    transform: skewX(-20deg);
+    animation: sheen 3s ease-in-out infinite;
+  }
+
+  @keyframes sheen {
+    0% { left: -60%; opacity: 0; }
+    20% { opacity: 1; }
+    40% { left: 140%; opacity: 0; }
+    100% { left: 140%; opacity: 0; }
+  }
+
+  .logo-text {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: #f0f0f0;
+  }
+
+  .orbit-wrap {
+    position: relative;
+    width: 80px;
+    height: 80px;
+  }
+
+  .orbit-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1.5px solid rgba(107,95,255,0.2);
+    animation: orbit-pulse 2.4s ease-in-out infinite;
+  }
+
+  .orbit-ring:nth-child(2) {
+    inset: 10px;
+    border-color: rgba(107,95,255,0.35);
+    animation-delay: 0.4s;
+  }
+
+  .orbit-ring:nth-child(3) {
+    inset: 20px;
+    border-color: rgba(107,95,255,0.55);
+    animation-delay: 0.8s;
+  }
+
+  @keyframes orbit-pulse {
+    0%, 100% { transform: scale(1); opacity: 0.5; }
+    50% { transform: scale(1.06); opacity: 1; }
+  }
+
+  .orbit-dot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    background: #6b5fff;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 14px rgba(107,95,255,0.9);
+    animation: dot-breathe 2.4s ease-in-out infinite;
+  }
+
+  @keyframes dot-breathe {
+    0%, 100% { transform: translate(-50%,-50%) scale(0.85); opacity: 0.7; }
+    50% { transform: translate(-50%,-50%) scale(1.15); opacity: 1; }
+  }
+
+  .dot-trail {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+  }
+
+  .dot-trail span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #6b5fff;
+    opacity: 0.2;
+    animation: trail-wave 1.6s ease-in-out infinite;
+  }
+
+  .dot-trail span:nth-child(1) { animation-delay: 0s; }
+  .dot-trail span:nth-child(2) { animation-delay: 0.18s; }
+  .dot-trail span:nth-child(3) { animation-delay: 0.36s; }
+  .dot-trail span:nth-child(4) { animation-delay: 0.54s; }
+  .dot-trail span:nth-child(5) { animation-delay: 0.72s; }
+
+  @keyframes trail-wave {
+    0%, 100% { opacity: 0.18; height: 5px; border-radius: 50%; }
+    50% { opacity: 1; height: 8px; border-radius: 3px; }
+  }
+
+  .loading-label {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    color: rgba(255,255,255,0.28);
+    text-transform: uppercase;
+    transition: opacity 0.4s ease;
+  }
+
+  .bg-particles {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .particle {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(107,95,255,0.45);
+    animation: float-up linear infinite;
+  }
+
+  @keyframes float-up {
+    0% { opacity: 0; transform: translateY(0) scale(0); }
+    15% { opacity: 1; }
+    85% { opacity: 0.4; }
+    100% { opacity: 0; transform: translateY(-200px) scale(1); }
+  }
+</style>
+
+<div class="splash">
+  <div class="bg-particles" id="particles"></div>
+
+  <div class="logo-wrap">
+    <div class="logo-icon">
+      <div class="logo-inner">
+        <div class="logo-sheen"></div>
+      </div>
+    </div>
+    <span class="logo-text">STUDYVAULT</span>
+  </div>
+
+  <div class="orbit-wrap">
+    <div class="orbit-ring"></div>
+    <div class="orbit-ring"></div>
+    <div class="orbit-ring"></div>
+    <div class="orbit-dot"></div>
+  </div>
+
+  <div class="dot-trail">
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+
+  <div class="loading-label" id="label">Opening the vault</div>
+</div>
+
+<script>
+  const particles = document.getElementById('particles');
+  const label = document.getElementById('label');
+
+  const messages = [
+    'Opening the vault',
+    'Loading your workspace',
+    'Almost ready',
+    'Syncing your data'
+  ];
+  let msgIdx = 0;
+
+  setInterval(() => {
+    msgIdx = (msgIdx + 1) % messages.length;
+    label.style.opacity = 0;
+    setTimeout(() => {
+      label.textContent = messages[msgIdx];
+      label.style.opacity = '';
+    }, 400);
+  }, 2800);
+
+  function spawnParticle() {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const size = 2 + Math.random() * 3;
+    const x = 10 + Math.random() * 80;
+    const dur = 4 + Math.random() * 5;
+    const delay = Math.random() * 2;
+    p.style.cssText = `width:${size}px;height:${size}px;left:${x}%;bottom:5%;animation-duration:${dur}s;animation-delay:${delay}s;opacity:0;`;
+    particles.appendChild(p);
+    setTimeout(() => p.remove(), (dur + delay + 0.5) * 1000);
+  }
+
+  for (let i = 0; i < 12; i++) spawnParticle();
+  setInterval(spawnParticle, 700);
+</script>

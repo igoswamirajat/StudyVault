@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { getDb } from "@/db/schema";
 import { ClientOnly } from "@/components/common/ClientOnly";
+import { WebViewer } from "@/components/study/WebViewer";
 import { VideoViewer, type VideoController } from "@/components/study/VideoViewer";
 import { PdfViewer } from "@/components/study/PdfViewer";
 import { MarkdownViewer, HtmlViewer, ImageViewer } from "@/components/study/MarkdownViewer";
@@ -55,6 +56,7 @@ import { generateQuizForResource } from "@/services/quizService";
 import { getOrCreateSummary, updateNote, createNote } from "@/services/notesService";
 import { aiGenerateSummary } from "@/services/aiService";
 import { useResizableSize, ResizeHandle } from "@/hooks/useResizableSize";
+import { FeynmanAssessmentModal } from "@/components/study/FeynmanAssessmentModal";
 
 export const Route = createFileRoute("/study/$resourceId")({
   errorComponent: StudyRoomError,
@@ -136,6 +138,7 @@ function StudyRoom() {
     direction: "right",
   });
   const [fcDialogOpen, setFcDialogOpen] = useState(false);
+  const [feynmanOpen, setFeynmanOpen] = useState(false);
   const [fcCount, setFcCount] = useState(8);
   const [isGeneratingFc, setIsGeneratingFc] = useState(false);
   const videoControllerRef = useRef<VideoController | null>(null);
@@ -218,17 +221,30 @@ function StudyRoom() {
     if (prev) navigate({ to: "/study/$resourceId", params: { resourceId: prev.id } });
   }, [prev, navigate]);
 
-  const markDone = useCallback(async () => {
-    await setStatus(resourceId, "completed");
-    toast.success("Marked as complete");
+  const toggleDone = useCallback(async () => {
+    if (progress?.status === "completed") {
+      await setStatus(resourceId, "in_progress");
+      toast.success("Marked as incomplete");
+    } else {
+      await setStatus(resourceId, "completed");
+      toast.success("Marked as complete! 🎉 +15 XP Earned");
+      // Intercept with Feynman Assessment instead of auto-advancing immediately
+      setFeynmanOpen(true);
+    }
+  }, [progress?.status, resourceId]);
+
+  const handleFeynmanComplete = () => {
+    setFeynmanOpen(false);
     if (settings.autoAdvance && next) {
       navigate({ to: "/study/$resourceId", params: { resourceId: next.id } });
     }
-  }, [resourceId, settings.autoAdvance, next, navigate]);
+  };
 
   const handleVideoEnded = useCallback(() => {
-    void markDone();
-  }, [markDone]);
+    if (progress?.status !== "completed") {
+      void toggleDone();
+    }
+  }, [progress?.status, toggleDone]);
 
   const handleVideoController = useCallback((controller: VideoController | null) => {
     videoControllerRef.current = controller;
@@ -339,7 +355,7 @@ function StudyRoom() {
         }
         case "start_studying": {
           const items = allResources
-            .filter((r) => r.folderPath?.endsWith(action.unitName ?? " "))
+            .filter((r) => r.folderPath?.endsWith(action.unitName ?? " "))
             .sort((a, b) => a.orderIndex - b.orderIndex);
           if (!items.length) throw new Error(`No resources in "${action.unitName}"`);
           setPlaylist({ label: action.unitName!, ids: items.map((r) => r.id) });
@@ -407,13 +423,13 @@ function StudyRoom() {
         goPrev();
       } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
-        await markDone();
+        await toggleDone();
         goNext();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [goNext, goPrev, markDone]);
+  }, [goNext, goPrev, toggleDone]);
 
   async function handleDownload() {
     if (!resource) return;
@@ -567,6 +583,8 @@ function StudyRoom() {
                 <ImageViewer resource={resource} />
               ) : resource.type === "other" && isEditableDocument(resource) ? (
                 <EditableCodeViewer resource={resource} />
+              ) : resource.type === "web" ? (
+                <WebViewer resource={resource} />
               ) : (
                 <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
                   <div>
@@ -589,11 +607,11 @@ function StudyRoom() {
           </Button>
           <div className="flex items-center gap-2">
             {progress?.status === "completed" ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-3 py-1 text-xs text-success">
-                <CheckCircle2 className="size-3.5" /> Completed
-              </span>
+              <Button size="sm" variant="secondary" onClick={toggleDone} className="bg-success/10 text-success hover:bg-success/20 hover:text-success">
+                <CheckCircle2 className="mr-1 size-4" /> Completed
+              </Button>
             ) : (
-              <Button size="sm" onClick={markDone}>
+              <Button size="sm" onClick={toggleDone}>
                 <Check className="mr-1 size-4" /> Mark as done
               </Button>
             )}
@@ -644,6 +662,14 @@ function StudyRoom() {
           </aside>
         </>
       )}
+
+      <FeynmanAssessmentModal 
+        resource={resource ?? null}
+        open={feynmanOpen}
+        onOpenChange={(open) => {
+          if (!open) handleFeynmanComplete();
+        }}
+      />
 
       <PomodoroWidget />
       <AiDock resource={resource} buildSessionContext={buildSessionContext} runAction={runAction} />

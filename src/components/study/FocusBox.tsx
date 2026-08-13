@@ -2,11 +2,17 @@ import { useEffect, useState } from "react";
 import { Plus, Target, Trash2, X, GripVertical, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDraggable } from "@/hooks/useDraggable";
+import { format } from "date-fns";
+import { getDb } from "@/db/schema";
+import { setStatus } from "@/services/progressService";
+import { toast } from "sonner";
 
 interface FocusTask {
   id: string;
   text: string;
   done: boolean;
+  type?: "day" | "folder" | "resource" | "text";
+  referenceId?: string | number;
 }
 
 const STORAGE_KEY = "studyvault:focusbox:tasks";
@@ -53,6 +59,15 @@ export function FocusBox() {
 
   useEffect(() => {
     saveTasks(tasks);
+    if (tasks.length > 0 || loadTasks().length > 0) {
+      const today = format(new Date(), "yyyy-MM-dd");
+      getDb().focus_history.put({
+        date: today,
+        tasks: tasks,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      }).catch(console.error);
+    }
   }, [tasks]);
 
   function toggleCollapsed() {
@@ -71,7 +86,27 @@ export function FocusBox() {
   }
 
   function toggle(id: string) {
-    setTasks((t) => t.map((task) => (task.id === id ? { ...task, done: !task.done } : task)));
+    setTasks((t) => {
+      const next = t.map((task) => (task.id === id ? { ...task, done: !task.done } : task));
+      const toggled = next.find(x => x.id === id);
+      
+      if (toggled && toggled.done && toggled.referenceId && (toggled.type === "day" || toggled.type === "folder")) {
+        (async () => {
+          const db = getDb();
+          let toComplete = [];
+          if (toggled.type === "day") {
+            toComplete = await db.resources.where("dayAssignment").equals(Number(toggled.referenceId)).toArray();
+          } else if (toggled.type === "folder") {
+            toComplete = await db.resources.filter(r => !!r.folderPath && (r.folderPath === toggled.referenceId || r.folderPath.startsWith(toggled.referenceId + "/"))).toArray();
+          }
+          if (toComplete.length > 0) {
+            await Promise.all(toComplete.map(r => setStatus(r.id, "completed")));
+            toast.success(`Completed ${toComplete.length} resources! Bonus XP awarded! 🌟`);
+          }
+        })();
+      }
+      return next;
+    });
   }
 
   function remove(id: string) {
@@ -120,6 +155,28 @@ export function FocusBox() {
       ref={drag.containerRef}
       style={drag.style}
       className="z-40 w-72 border-2 border-foreground bg-background shadow-[6px_6px_0_var(--foreground)]"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        try {
+          const data = e.dataTransfer.getData("application/json");
+          if (!data) return;
+          const payload = JSON.parse(data);
+          if (payload.type === "day" || payload.type === "folder") {
+            e.preventDefault();
+            setTasks((t) => [
+              ...t,
+              {
+                id: crypto.randomUUID(),
+                text: payload.title,
+                done: false,
+                type: payload.type,
+                referenceId: payload.id,
+              },
+            ]);
+            toast.success(`Added ${payload.type} to focus`);
+          }
+        } catch (err) {}
+      }}
     >
       <div
         {...drag.handleProps}

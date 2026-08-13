@@ -8,6 +8,7 @@ import {
   answerDoubtAI,
   studyAssistantAI,
   generateLearningJourneyAI,
+  generatePlannerAI,
 } from "@/lib/ai.functions";
 
 /** A single turn in a doubt/assistant conversation. */
@@ -372,16 +373,16 @@ export async function isAiConfigured(): Promise<boolean> {
 
 export interface JourneyPhaseResource {
   id: string;
-  title: string;
-  status: "locked" | "available" | "in-progress" | "completed";
+  title?: string;
+  status: string;
   reason?: string;
 }
 
 export interface JourneyPhase {
-  id: string;
+  id?: string;
   title: string;
   description: string;
-  order: number;
+  order?: number;
   resources: JourneyPhaseResource[];
 }
 
@@ -426,6 +427,26 @@ export async function aiGenerateLearningJourney(): Promise<LearningJourney> {
             name: f.name,
           })),
           progress,
+          provider,
+          endpoint,
+          apiKey,
+          model,
+        },
+      }),
+    );
+  } catch (e) {
+    throw describeAiError(e);
+  }
+}
+
+export async function aiGeneratePlanner(resources: any[], prompt: string) {
+  const { provider, endpoint, apiKey, model } = await getAiConfig();
+  try {
+    return await callAi(() =>
+      generatePlannerAI({
+        data: {
+          resources,
+          prompt,
           provider,
           endpoint,
           apiKey,

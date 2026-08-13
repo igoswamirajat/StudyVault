@@ -184,3 +184,47 @@ export const AssistantInput = z.object({
   apiKey: z.string().optional(),
   model: z.string().optional(),
 });
+
+export const WebExtractionInput = z.object({
+  url: z.string().url(),
+  provider: z.string().optional(),
+  endpoint: z.string().optional(),
+  apiKey: z.string().optional(),
+  model: z.string().optional(),
+});
+
+export const FeynmanInput = z.object({
+  title: z.string(),
+  context: z.string(),
+  transcript: z.string(),
+  provider: z.string().optional(),
+  endpoint: z.string().optional(),
+  apiKey: z.string().optional(),
+  model: z.string().optional(),
+});
+
+export const PlannerSchema = z.object({
+  days: z.array(
+    z.object({
+      dayNumber: z.number(),
+      title: z.string().describe("e.g. Day 1: Introduction, or Monday - Basics"),
+      resourceIds: z.array(z.string()),
+    })
+  )
+});
+
+export const PlannerInput = z.object({
+  resources: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      type: z.string(),
+      durationSeconds: z.number().nullable().optional(),
+    })
+  ),
+  prompt: z.string().describe("User constraints or instructions for scheduling"),
+  provider: z.string().optional(),
+  endpoint: z.string().optional(),
+  apiKey: z.string().optional(),
+  model: z.string().optional(),
+});

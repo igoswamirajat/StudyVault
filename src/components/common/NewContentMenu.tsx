@@ -6,9 +6,19 @@ import {
   Notebook as NotebookIcon,
   StickyNote,
   Plus,
+  FolderPlus,
+  Youtube,
+  Globe,
 } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+} from "@/components/ui/dialog";
+import { YoutubePlaylistImport } from "@/components/import/YoutubePlaylistImport";
+import { WebImportDialog } from "@/components/import/WebImportDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +32,7 @@ import {
   type CreatedContent,
   type NewContentKind,
 } from "@/services/contentCreationService";
+import { createFolder as createFolderSvc } from "@/services/fileOpsService";
 
 interface Props {
   /** Default folder path for new file resources. */
@@ -40,6 +51,19 @@ export function NewContentMenu({
   onCreated,
 }: Props) {
   const navigate = useNavigate();
+  const [showYoutube, setShowYoutube] = useState(false);
+  const [showWeb, setShowWeb] = useState(false);
+
+  const handleCreateFolder = async () => {
+    const name = window.prompt("New folder name:");
+    if (!name) return;
+    try {
+      await createFolderSvc(defaultFolderPath, name);
+      toast.success("Folder created");
+    } catch (e) {
+      toast.error("Failed to create folder");
+    }
+  };
 
   const handle = async (kind: NewContentKind["kind"]) => {
     try {
@@ -98,7 +122,30 @@ export function NewContentMenu({
         <DropdownMenuItem onClick={() => void handle("notebook")}>
           <NotebookIcon className="mr-2 size-3.5" /> Notebook
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Import</DropdownMenuLabel>
+        <DropdownMenuItem onClick={() => setShowYoutube(true)}>
+          <Youtube className="mr-2 size-3.5" /> YouTube Playlist
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setShowWeb(true)}>
+          <Globe className="mr-2 size-3.5" /> Web Article
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={handleCreateFolder}>
+          <FolderPlus className="mr-2 size-3.5" /> Folder
+        </DropdownMenuItem>
       </DropdownMenuContent>
+      
+      <Dialog open={showYoutube} onOpenChange={setShowYoutube}>
+        <DialogContent className="max-w-md p-0 border-0 bg-transparent shadow-none">
+          <YoutubePlaylistImport onImported={() => setShowYoutube(false)} />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showWeb} onOpenChange={setShowWeb}>
+        <DialogContent className="max-w-md p-0 border-0 bg-transparent shadow-none">
+          <WebImportDialog onImported={() => setShowWeb(false)} defaultFolderPath={defaultFolderPath} />
+        </DialogContent>
+      </Dialog>
     </DropdownMenu>
   );
 }

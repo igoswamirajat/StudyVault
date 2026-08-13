@@ -36,7 +36,6 @@ import { cn } from "@/lib/utils";
 import { SvgNode } from "./extensions/SvgNode";
 import { SandboxNode } from "./extensions/SandboxNode";
 import { CodeSnippetDialog } from "./CodeSnippetDialog";
-import { safeParseJson } from "@/lib/json";
 
 const lowlight = createLowlight(common);
 

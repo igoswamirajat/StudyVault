@@ -32,6 +32,9 @@ import {
   Copy as CopyIcon,
   Scissors,
   ClipboardPaste,
+  FolderTree,
+  CalendarDays,
+  Sparkles,
 } from "lucide-react";
 import { getDb, type Resource, type FolderRow, type ResourceType } from "@/db/schema";
 import { Button } from "@/components/ui/button";
@@ -42,13 +45,10 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { estimateTotalSeconds, formatEstimate } from "@/lib/estimateTime";
 import { RevisionFlagButton } from "@/components/library/RevisionFlagButton";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
+import { Progress } from "@/components/ui/progress";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { PlannerView } from "@/components/organizer/PlannerView";
+import { AiPlannerDialog } from "@/components/organizer/AiPlannerDialog";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -211,10 +211,13 @@ function Organizer() {
     [allResources],
   );
   const folders = useLiveQuery(() => getDb().folders.toArray(), []) ?? [];
+  const days = useLiveQuery(() => getDb().days.orderBy("number").toArray(), []) ?? [];
 
   const tree = useMemo(() => buildFolderTree(folders, resources), [folders, resources]);
   const orphans = useMemo(() => unassignedResources(resources), [resources]);
 
+  const [viewMode, setViewMode] = useState<"folders" | "planner">("folders");
+  const [plannerOpen, setPlannerOpen] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string>("");
   const [newItemOpen, setNewItemOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -318,7 +321,22 @@ function Organizer() {
       return;
     }
 
-    // Resource(s) drop
+    // Day Assignment drop (Planner)
+    if (overId.startsWith("day-target:")) {
+      const dayNum = parseInt(overId.slice("day-target:".length), 10);
+      const draggedIds = sel.selected.has(activeId) && sel.count > 1 ? Array.from(sel.selected) : [activeId];
+      const db = getDb();
+      await db.transaction("rw", db.resources, async () => {
+        for (const rId of draggedIds) {
+           await db.resources.update(rId, { dayAssignment: dayNum });
+        }
+      });
+      toast.success(`Assigned ${draggedIds.length} item(s) to Day`);
+      if (draggedIds.length > 1) sel.clear();
+      return;
+    }
+
+    // Resource(s) drop to folder
     const draggedIds =
       sel.selected.has(activeId) && sel.count > 1 ? Array.from(sel.selected) : [activeId];
     const dest = targetPath === "__unassigned__" ? "" : targetPath;
@@ -412,9 +430,21 @@ function Organizer() {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex h-full flex-col lg:flex-row">
-        <aside
-          style={{ "--tree-w": `${treeSize.size}px` } as CSSProperties}
+      <div className="flex flex-col h-full bg-background">
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface-1/40 px-4">
+          <div className="flex items-center gap-1 rounded-md bg-surface-2 p-1">
+             <button onClick={() => setViewMode('folders')} className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded transition-colors ${viewMode === 'folders' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}><FolderTree className="size-3.5"/> Folders</button>
+             <button onClick={() => setViewMode('planner')} className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded transition-colors ${viewMode === 'planner' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}><CalendarDays className="size-3.5"/> AI Planner</button>
+          </div>
+          {viewMode === 'planner' && (
+             <Button size="sm" onClick={() => setPlannerOpen(true)} className="h-8 gap-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white hover:from-indigo-600 hover:to-purple-600 border-none shadow-sm"><Sparkles className="size-3.5"/> Auto-Schedule</Button>
+          )}
+        </div>
+        
+        {viewMode === 'folders' ? (
+          <div className="flex h-full min-h-0 flex-col lg:flex-row">
+            <aside
+              style={{ "--tree-w": `${treeSize.size}px` } as CSSProperties}
           className="flex max-h-[45vh] w-full shrink-0 flex-col overflow-y-auto overscroll-contain border-b border-border bg-surface-1/40 p-3 lg:max-h-none lg:w-[var(--tree-w)] lg:border-b-0 lg:border-r"
         >
           <div className="mb-3 flex shrink-0 items-center justify-between">
@@ -474,62 +504,68 @@ function Organizer() {
         </div>
 
         <section className="min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6">
-          <FolderDetail
-            path={selectedPath}
-            tree={tree}
-            orphans={orphans}
-            renamingId={renamingId}
-            onRequestRename={(id) => setRenamingId(id)}
-            onCancelRename={() => setRenamingId(null)}
-            onCommitRename={async (id, next) => {
-              await renameResource(id, next);
-              setRenamingId(null);
-              toast.success("Renamed");
-            }}
-            onRequestMove={(ids) => setMovePickerIds(ids)}
-            onRequestCopy={(ids) => setCopyPickerIds(ids)}
-            onDuplicate={async (ids) => {
-              const newIds = await copyResources(ids);
-              toast.success(`Duplicated ${newIds.length} item${newIds.length > 1 ? "s" : ""}`);
-            }}
-            onCopyClip={(ids) => {
-              clip.copy(ids);
-              toast.success(`Copied ${ids.length} item${ids.length > 1 ? "s" : ""}`);
-            }}
-            onCutClip={(ids) => {
-              clip.cut(ids);
-              toast.success(`Cut ${ids.length} item${ids.length > 1 ? "s" : ""}`);
-            }}
-            onPasteHere={() => pasteInto(selectedPath || "")}
-            clipboardCount={clip.clipboard?.ids.length ?? 0}
-            onTrash={async (ids) => {
-              await trashResources(ids);
-              const count = ids.length;
-              toast(`Moved ${count} item${count > 1 ? "s" : ""} to trash`, {
-                action: {
-                  label: "Undo",
-                  onClick: async () => {
-                    await restoreResources(ids);
-                    toast.success("Restored");
+            <FolderDetail
+              path={selectedPath}
+              tree={tree}
+              orphans={orphans}
+              renamingId={renamingId}
+              onRequestRename={(id) => setRenamingId(id)}
+              onCancelRename={() => setRenamingId(null)}
+              onCommitRename={async (id, next) => {
+                await renameResource(id, next);
+                setRenamingId(null);
+                toast.success("Renamed");
+              }}
+              onRequestMove={(ids) => setMovePickerIds(ids)}
+              onRequestCopy={(ids) => setCopyPickerIds(ids)}
+              onDuplicate={async (ids) => {
+                const newIds = await copyResources(ids);
+                toast.success(`Duplicated ${newIds.length} item${newIds.length > 1 ? "s" : ""}`);
+              }}
+              onCopyClip={(ids) => {
+                clip.copy(ids);
+                toast.success(`Copied ${ids.length} item${ids.length > 1 ? "s" : ""}`);
+              }}
+              onCutClip={(ids) => {
+                clip.cut(ids);
+                toast.success(`Cut ${ids.length} item${ids.length > 1 ? "s" : ""}`);
+              }}
+              onPasteHere={() => pasteInto(selectedPath || "")}
+              clipboardCount={clip.clipboard?.ids.length ?? 0}
+              onTrash={async (ids) => {
+                await trashResources(ids);
+                const count = ids.length;
+                toast(`Moved ${count} item${count > 1 ? "s" : ""} to trash`, {
+                  action: {
+                    label: "Undo",
+                    onClick: async () => {
+                      await restoreResources(ids);
+                      toast.success("Restored");
+                    },
                   },
-                },
-                duration: 5000,
-              });
-            }}
-            onOpenPlaylist={(node) => {
-              const ids = collectResourcesRecursive(node).map((r) => r.id);
-              if (ids.length === 0) {
-                toast.error("Folder has no resources to play");
-                return;
-              }
-              setPlaylist({ label: node.path, ids });
-              navigate({ to: "/study/$resourceId", params: { resourceId: ids[0] } });
-            }}
-            navigate={navigate}
-            onAddSub={(p) => createFolder(p)}
-          />
-        </section>
+                  duration: 5000,
+                });
+              }}
+              onOpenPlaylist={(node) => {
+                const ids = collectResourcesRecursive(node).map((r) => r.id);
+                if (ids.length === 0) {
+                  toast.error("Folder has no resources to play");
+                  return;
+                }
+                setPlaylist({ label: node.path, ids });
+                navigate({ to: "/study/$resourceId", params: { resourceId: ids[0] } });
+              }}
+              navigate={navigate}
+              onAddSub={(p) => createFolder(p)}
+            />
+          </section>
+        </div>
+        ) : (
+          <PlannerView resources={resources} days={days} />
+        )}
       </div>
+
+      <AiPlannerDialog open={plannerOpen} onOpenChange={setPlannerOpen} resources={resources} days={days} />
 
       <DragOverlay>
         {activeDrag && (
@@ -651,12 +687,27 @@ function TreeNode({
     setDragRef(el);
   }
 
+  const handleDragStart = (e: React.DragEvent) => {
+    e.stopPropagation();
+    e.dataTransfer.setData(
+      "application/json",
+      JSON.stringify({
+        type: "folder",
+        id: node.path,
+        title: node.name,
+        resourceIds: collectResourcesRecursive(node).map((r) => r.id),
+      })
+    );
+  };
+
   return (
     <div>
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
             ref={setBothRefs}
+            draggable={true}
+            onDragStart={handleDragStart}
             title={node.path}
             style={{ paddingLeft: 6 + depth * 14, opacity: isDragging ? 0.4 : 1 }}
             className={cn(

@@ -1,15 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { getDb, type Progress } from "@/db/schema";
+import { getDb, type Progress, type FocusHistory } from "@/db/schema";
 import { ClientOnly } from "@/components/common/ClientOnly";
 import { getStreak, getHeatmapData, getTodaySeconds } from "@/services/progressService";
 import { useSettings } from "@/hooks/useSettings";
 import { formatDuration } from "@/lib/format-time";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { Flame, Target, CheckCircle2, Clock } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
+import { Flame, Target, CheckCircle2, Clock, Star, Trophy, Sparkles, CheckSquare, Square } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Progress as ProgressBar } from "@/components/ui/progress";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/progress")({
   component: () => (
@@ -28,12 +29,18 @@ function ProgressPage() {
   const [streak, setStreak] = useState(0);
   const [todaySec, setTodaySec] = useState(0);
   const [heatmap, setHeatmap] = useState<{ date: string; seconds: number }[]>([]);
+  const [focusHistory, setFocusHistory] = useState<FocusHistory[]>([]);
+  const [stats, setStats] = useState({ xp: 0, level: 1, levelName: "Novice", nextLevelXp: 100, stars: 0 });
 
   useEffect(() => {
-    void getStreak().then(setStreak);
-    void getTodaySeconds().then(setTodaySec);
-    void getHeatmapData(90).then(setHeatmap);
-  }, [progress]);
+    import("@/services/progressService").then((mod) => {
+      mod.getStreak().then(setStreak);
+      mod.getTodaySeconds().then(setTodaySec);
+      mod.getHeatmapData(90).then(setHeatmap);
+      mod.getGamificationStats().then(setStats);
+      getDb().focus_history.orderBy("date").reverse().limit(14).toArray().then(setFocusHistory);
+    });
+  }, [progress, days]);
 
   const completed = progress.filter((p) => p.status === "completed").length;
   const total = resources.length;
@@ -58,11 +65,44 @@ function ProgressPage() {
     return done < dr.length;
   });
 
+  const xpPct = Math.min(100, Math.round((stats.xp / stats.nextLevelXp) * 100));
+
   return (
     <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Progress</h1>
-        <p className="text-sm text-muted-foreground">Your learning at a glance.</p>
+      <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Progress</h1>
+          <p className="text-sm text-muted-foreground">Your learning at a glance.</p>
+        </div>
+        
+        {/* Player Profile Header */}
+        <div className="flex w-full flex-col gap-4 rounded-xl border border-border bg-surface-1 p-5 shadow-sm md:w-[380px]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-full bg-primary/20 text-primary">
+                <Trophy className="size-5" />
+              </div>
+              <div>
+                <div className="text-sm font-semibold tracking-tight">
+                  Level {stats.level}: <span className="text-primary">{stats.levelName}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">Keep studying to level up!</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 rounded-full bg-warning/10 px-3 py-1 text-sm font-bold text-warning">
+              <Star className="size-4 fill-warning" />
+              <span>{stats.stars}</span>
+            </div>
+          </div>
+          
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs font-medium text-muted-foreground">
+              <span>{stats.xp} XP</span>
+              <span>{stats.nextLevelXp} XP</span>
+            </div>
+            <ProgressBar value={xpPct} className="h-2 bg-surface-3" />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
@@ -148,26 +188,79 @@ function ProgressPage() {
         )}
       </section>
 
-      <section className="rounded-xl border border-border bg-surface-1 p-4">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-          Activity (90 days)
-        </h2>
-        <Heatmap data={heatmap} />
+      <section className="rounded-xl border border-border bg-surface-1 p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Activity (90 days)
+          </h2>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Less</span>
+            <div className="flex gap-1">
+              <div className="size-3 rounded-sm bg-surface-3" />
+              <div className="size-3 rounded-sm bg-primary/30" />
+              <div className="size-3 rounded-sm bg-primary/60" />
+              <div className="size-3 rounded-sm bg-primary" />
+            </div>
+            <span>More</span>
+          </div>
+        </div>
+        <TooltipProvider>
+          <Heatmap data={heatmap} />
+        </TooltipProvider>
       </section>
 
-      <section className="rounded-xl border border-border bg-surface-1 p-4">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Top 10 by time</h2>
+      <section className="rounded-xl border border-border bg-surface-1 p-5 shadow-sm">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Focus History</h2>
+        {focusHistory.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No focus tasks recorded yet. Add items to your Focus Box!</p>
+        ) : (
+          <Accordion type="single" collapsible className="w-full">
+            {focusHistory.map((fh) => {
+              const completedTasks = fh.tasks.filter(t => t.done).length;
+              const totalTasks = fh.tasks.length;
+              const pct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+              return (
+                <AccordionItem key={fh.date} value={fh.date}>
+                  <AccordionTrigger className="text-sm">
+                    <div className="flex w-full items-center justify-between pr-4">
+                      <span>{new Date(fh.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {completedTasks}/{totalTasks} · {pct}%
+                      </span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <ProgressBar value={pct} className="mb-3 h-1.5" />
+                    <ul className="space-y-2 text-sm">
+                      {fh.tasks.map((task, i) => (
+                        <li key={task.id || i} className="flex items-start gap-2">
+                          {task.done ? <CheckSquare className="mt-0.5 size-4 text-primary" /> : <Square className="mt-0.5 size-4 text-muted-foreground" />}
+                          <span className={task.done ? "text-muted-foreground line-through" : ""}>{task.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            })}
+          </Accordion>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-border bg-surface-1 p-5 shadow-sm">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Top 10 by time</h2>
         {topTime.length === 0 ? (
           <p className="text-sm text-muted-foreground">No study time recorded yet.</p>
         ) : (
-          <div className="h-72">
+          <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={topTime} layout="vertical" margin={{ top: 4, right: 12, left: 12, bottom: 4 }}>
                 <XAxis type="number" tickFormatter={(v) => formatDuration(v)} stroke="oklch(0.66 0.024 270)" fontSize={11} />
                 <YAxis dataKey="name" type="category" width={180} stroke="oklch(0.66 0.024 270)" fontSize={11} />
-                <Tooltip
-                  contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", fontSize: 12 }}
-                  formatter={(v) => formatDuration(Number(v))}
+                <RechartsTooltip
+                  cursor={{ fill: 'var(--surface-2)' }}
+                  contentStyle={{ background: "var(--background)", border: "1px solid var(--border)", borderRadius: "6px", fontSize: 12 }}
+                  formatter={(v) => [formatDuration(Number(v)), "Time Studied"]}
                 />
                 <Bar dataKey="seconds" fill="var(--primary)" radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -204,24 +297,30 @@ function Heatmap({ data }: { data: { date: string; seconds: number }[] }) {
   }
   if (cur.length) weeks.push(cur);
   return (
-    <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-thin">
+    <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-thin">
       {weeks.map((w, i) => (
-        <div key={i} className="flex flex-col gap-1">
+        <div key={i} className="flex flex-col gap-1.5">
           {w.map((d) => {
             const intensity = d.seconds / max;
             const bg = d.seconds === 0
-              ? "bg-surface-3"
+              ? "bg-surface-3/50 hover:bg-surface-3"
               : intensity > 0.66
-                ? "bg-primary"
+                ? "bg-primary hover:bg-primary/90"
                 : intensity > 0.33
-                  ? "bg-primary/60"
-                  : "bg-primary/30";
+                  ? "bg-primary/60 hover:bg-primary/70"
+                  : "bg-primary/30 hover:bg-primary/40";
             return (
-              <div
-                key={d.date}
-                className={`size-3 rounded-sm ${bg}`}
-                title={`${d.date} — ${formatDuration(d.seconds)}`}
-              />
+              <Tooltip key={d.date}>
+                <TooltipTrigger asChild>
+                  <div
+                    className={`size-3.5 rounded-[3px] transition-colors ${bg} cursor-pointer`}
+                  />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  <span className="font-semibold">{d.seconds > 0 ? formatDuration(d.seconds) : "No activity"}</span>
+                  <span className="ml-2 text-muted-foreground">{new Date(d.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                </TooltipContent>
+              </Tooltip>
             );
           })}
         </div>

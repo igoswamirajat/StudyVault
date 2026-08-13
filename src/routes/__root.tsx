@@ -7,11 +7,12 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppShell } from "../components/app-shell/AppShell";
+import { BootScreen } from "../components/common/BootScreen";
 import { Toaster } from "../components/ui/sonner";
 import { useAutoBackup } from "../hooks/useAutoBackup";
 import { installGlobalErrorHandlers } from "../lib/global-error-handler";
@@ -121,11 +122,22 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const [isBooting, setIsBooting] = useState(true);
+
   useAutoBackup();
+  
   useEffect(() => {
     installGlobalErrorHandlers();
     syncNotesFromLocalFolder(true).catch(console.error);
   }, []);
+
+  if (isBooting) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <BootScreen onComplete={() => setIsBooting(false)} />
+      </QueryClientProvider>
+    );
+  }
 
   return (
     <QueryClientProvider client={queryClient}>

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ClientOnly } from "@/components/common/ClientOnly";
 import { useSettings } from "@/hooks/useSettings";
 import { Button } from "@/components/ui/button";
@@ -505,6 +505,7 @@ function SettingsPage() {
           AI quizzes & flashcards are powered by Lovable AI from your summary notes.
         </p>
       </Section>
+
 
       <Section title="Auto-Backup">
         <p className="text-xs text-muted-foreground">

@@ -1,4 +1,5 @@
 import { getDb } from "@/db/schema";
+import { generateFullBackupData, importFullBackup } from "./exportService";
 
 const BACKUP_HANDLE_KEY = "backupDirectoryHandle";
 const BACKUP_FILENAME = "studyvault-backup.json";
@@ -25,67 +26,72 @@ export async function pickBackupFolder(): Promise<FileSystemDirectoryHandle | nu
   return handle;
 }
 
+export async function checkBackupPermission(): Promise<"granted" | "prompt" | "denied"> {
+  const row = await getDb().settings.get(BACKUP_HANDLE_KEY);
+  if (!row || !row.value) return "denied";
+  const handle = row.value as FileSystemDirectoryHandle;
+  try {
+    const anyHandle = handle as any;
+    return (await anyHandle.queryPermission?.({ mode: "readwrite" })) ?? "granted";
+  } catch {
+    return "denied";
+  }
+}
+
+export async function requestBackupPermission(): Promise<boolean> {
+  const row = await getDb().settings.get(BACKUP_HANDLE_KEY);
+  if (!row || !row.value) return false;
+  const handle = row.value as FileSystemDirectoryHandle;
+  try {
+    const anyHandle = handle as any;
+    const perm = await anyHandle.requestPermission?.({ mode: "readwrite" });
+    return perm === "granted";
+  } catch {
+    return false;
+  }
+}
+
 export async function getBackupHandle(): Promise<FileSystemDirectoryHandle | null> {
   const row = await getDb().settings.get(BACKUP_HANDLE_KEY);
-  if (!row) return null;
+  if (!row || !row.value) return null;
   const handle = row.value as FileSystemDirectoryHandle;
-  if (!handle) return null;
-  try {
-    const anyHandle = handle as unknown as {
-      queryPermission?: (opts: { mode: "readwrite" }) => Promise<PermissionState>;
-      requestPermission?: (opts: { mode: "readwrite" }) => Promise<PermissionState>;
-    };
-    const perm = (await anyHandle.queryPermission?.({ mode: "readwrite" })) ?? "granted";
-    if (perm !== "granted") {
-      const req = (await anyHandle.requestPermission?.({ mode: "readwrite" })) ?? "denied";
-      if (req !== "granted") return null;
-    }
-    return handle;
-  } catch {
-    return null;
-  }
+  
+  const state = await checkBackupPermission();
+  if (state === "granted") return handle;
+  
+  // Try to request it (will fail if not triggered by user gesture, but we try)
+  const granted = await requestBackupPermission();
+  return granted ? handle : null;
 }
 
 export async function performAutoBackup(): Promise<{ success: boolean; error?: string }> {
   const dir = await getBackupHandle();
   if (!dir) return { success: false, error: "No backup folder configured or permission denied" };
 
-  const db = getDb();
-  const data = {
-    version: 1,
-    backupAt: new Date().toISOString(),
-    resources: await db.resources.toArray(),
-    days: await db.days.toArray(),
-    notes: await db.notes.toArray(),
-    progress: await db.progress.toArray(),
-    study_sessions: await db.study_sessions.toArray(),
-    video_progress: await db.video_progress.toArray(),
-    pdf_annotations: await db.pdf_annotations.toArray(),
-    bookmarks: await db.bookmarks.toArray(),
-    quizzes: await db.quizzes.toArray(),
-    flashcards: await db.flashcards.toArray(),
-    folders: await db.folders.toArray(),
-    youtube_playlists: await db.youtube_playlists.toArray(),
-    notebooks: await db.notebooks.toArray(),
-    notebook_cells: await db.notebook_cells.toArray(),
-    settings: (await db.settings.toArray()).filter(
-      (s) => s.key !== BACKUP_HANDLE_KEY && s.key !== "offlineDirectoryHandle",
-    ),
-  };
-
   try {
+    const data = await generateFullBackupData();
+    
+    // Auto backup shouldn't save backup directory handles
+    if (data.settings) {
+      data.settings = data.settings.filter(
+        (s) => s.key !== BACKUP_HANDLE_KEY && s.key !== "offlineDirectoryHandle",
+      );
+    }
+
+    const jsonString = JSON.stringify(data, null, 2);
+
     const fileHandle = await dir.getFileHandle(BACKUP_FILENAME, { create: true });
     const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(data, null, 2));
+    await writable.write(jsonString);
     await writable.close();
-    await db.settings.put({ key: "lastBackupAt", value: Date.now() });
+    await getDb().settings.put({ key: "lastBackupAt", value: Date.now() });
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Write failed" };
   }
 }
 
-export async function checkForNewerBackup(): Promise<{ hasNewer: boolean; backupAt?: string }> {
+export async function checkForNewerBackup(): Promise<{ hasNewer: boolean; backupAt?: string; file?: File }> {
   const dir = await getBackupHandle();
   if (!dir) return { hasNewer: false };
 
@@ -98,12 +104,12 @@ export async function checkForNewerBackup(): Promise<{ hasNewer: boolean; backup
     const lastBackupRow = await getDb().settings.get("lastBackupAt");
     const lastKnown = (lastBackupRow?.value as number) ?? 0;
     if (backupTime > lastKnown + 60_000) {
-      return { hasNewer: true, backupAt: data.backupAt };
+      return { hasNewer: true, backupAt: new Date(backupTime).toLocaleString(), file };
     }
-    return { hasNewer: false };
   } catch {
-    return { hasNewer: false };
+    // missing or corrupted
   }
+  return { hasNewer: false };
 }
 
 export async function importFromBackupFolder(): Promise<{ success: boolean; error?: string }> {
@@ -113,64 +119,7 @@ export async function importFromBackupFolder(): Promise<{ success: boolean; erro
   try {
     const fileHandle = await dir.getFileHandle(BACKUP_FILENAME);
     const file = await fileHandle.getFile();
-    const text = await file.text();
-    const data = JSON.parse(text);
-    const db = getDb();
-
-    await db.transaction(
-      "rw",
-      [
-        db.resources,
-        db.days,
-        db.notes,
-        db.progress,
-        db.study_sessions,
-        db.video_progress,
-        db.pdf_annotations,
-        db.bookmarks,
-        db.quizzes,
-        db.flashcards,
-        db.folders,
-        db.settings,
-        db.youtube_playlists,
-        db.notebooks,
-        db.notebook_cells,
-      ],
-      async () => {
-        await Promise.all([
-          db.resources.clear(),
-          db.days.clear(),
-          db.notes.clear(),
-          db.progress.clear(),
-          db.study_sessions.clear(),
-          db.video_progress.clear(),
-          db.pdf_annotations.clear(),
-          db.bookmarks.clear(),
-          db.quizzes.clear(),
-          db.flashcards.clear(),
-          db.folders.clear(),
-          db.youtube_playlists.clear(),
-          db.notebooks.clear(),
-          db.notebook_cells.clear(),
-        ]);
-        if (data.resources) await db.resources.bulkPut(data.resources);
-        if (data.days) await db.days.bulkPut(data.days);
-        if (data.notes) await db.notes.bulkPut(data.notes);
-        if (data.progress) await db.progress.bulkPut(data.progress);
-        if (data.study_sessions) await db.study_sessions.bulkPut(data.study_sessions);
-        if (data.video_progress) await db.video_progress.bulkPut(data.video_progress);
-        if (data.pdf_annotations) await db.pdf_annotations.bulkPut(data.pdf_annotations);
-        if (data.bookmarks) await db.bookmarks.bulkPut(data.bookmarks);
-        if (data.quizzes) await db.quizzes.bulkPut(data.quizzes);
-        if (data.flashcards) await db.flashcards.bulkPut(data.flashcards);
-        if (data.folders) await db.folders.bulkPut(data.folders);
-        if (data.settings) await db.settings.bulkPut(data.settings);
-        if (data.youtube_playlists) await db.youtube_playlists.bulkPut(data.youtube_playlists);
-        if (data.notebooks) await db.notebooks.bulkPut(data.notebooks);
-        if (data.notebook_cells) await db.notebook_cells.bulkPut(data.notebook_cells);
-      },
-    );
-    await db.settings.put({ key: "lastBackupAt", value: Date.now() });
+    await importFullBackup(file);
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Import failed" };

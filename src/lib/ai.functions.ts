@@ -15,9 +15,13 @@ import {
   JourneyOutput,
   AutoNoteInput,
   DoubtInput,
-  SortInput,
   AssistantSchema,
   AssistantInput,
+  WebExtractionInput,
+  FeynmanInput,
+  PlannerInput,
+  PlannerSchema,
+  SortInput,
 } from "./ai-schemas";
 
 const FALLBACK_MODEL = "google/gemini-1.5-flash";
@@ -248,7 +252,7 @@ function allowedMedia(
 
 
 export const generateQuizAI = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => AiInput.parse(data))
+  .validator((data: unknown) => AiInput.parse(data))
   .handler(async ({ data }) =>
     executeAi("quiz", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
@@ -258,7 +262,7 @@ export const generateQuizAI = createServerFn({ method: "POST" })
       const text = `Resource: ${data.title}\nType: ${data.resourceType ?? "unknown"}\n\nContext, notes & summary:\n"""\n${trimmed}\n"""\n${hasMedia ? "\nVisual media is attached — use only what can actually be seen.\n" : ""}\nGenerate ${data.count ?? 5} questions that test the most important concepts.`;
       const { object } = await generateObject({
         model,
-        maxOutputTokens: 1200,
+        maxTokens: 1200,
         schema: QuizSchema,
         system:
           "You generate concise multiple-choice study quizzes. Always 4 options, exactly one correct. Base questions only on provided notes/summary and visible media. IMPORTANT: If the provided context is completely empty or insufficient to create valid questions, you MUST return an empty array for questions ([]). Respond STRICTLY with a raw JSON object matching the requested schema. Do NOT wrap the JSON in markdown blocks (no ```json).",
@@ -269,7 +273,7 @@ export const generateQuizAI = createServerFn({ method: "POST" })
   );
 
 export const generateFlashcardsAI = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => AiInput.parse(data))
+  .validator((data: unknown) => AiInput.parse(data))
   .handler(async ({ data }) =>
     executeAi("flashcards", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
@@ -279,7 +283,7 @@ export const generateFlashcardsAI = createServerFn({ method: "POST" })
       const text = `Resource: ${data.title}\nType: ${data.resourceType ?? "unknown"}\n\nSource context, notes & highlights:\n"""\n${trimmed}\n"""\n${hasMedia ? "\nVisual media is attached — incorporate only concepts you can see.\n" : ""}\nGenerate ${data.count ?? 8} flashcards. Front = clear prompt or cloze-style question. Back = concise answer (1-2 sentences).`;
       const { object } = await generateObject({
         model,
-        maxOutputTokens: 1200,
+        maxTokens: 1200,
         schema: FlashcardSchema,
         system:
           "You create high-quality study flashcards using the minimum-information principle: each card asks one atomic question. Use the user's notes/highlights and visible media as the source of truth. IMPORTANT: If the provided context is completely empty or insufficient to create valid flashcards, you MUST return an empty array for cards ([]). Respond STRICTLY with a raw JSON object matching the requested schema. Do NOT wrap the JSON in markdown blocks (no ```json).",
@@ -291,7 +295,7 @@ export const generateFlashcardsAI = createServerFn({ method: "POST" })
 
 
 export const generateSummaryAI = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => SummaryInput.parse(data))
+  .validator((data: unknown) => SummaryInput.parse(data))
   .handler(async ({ data }) =>
     executeAi("summary", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
@@ -301,7 +305,7 @@ export const generateSummaryAI = createServerFn({ method: "POST" })
       const text = `Summarize the following study material for "${data.title}".${hasMedia ? " Visual media is attached — describe only what is actually shown, not just the title." : ""}\n\nContext:\n${trimmed}`;
       const { text: out } = await generateText({
         model,
-        maxOutputTokens: 900,
+        maxTokens: 900,
         system:
           "You create concise, well-structured study summaries in markdown. Use headings, bullet points, and bold for key terms. Focus on the most important concepts. If source context is insufficient, say that clearly instead of inventing details. Ground any visual claims only in visible media.",
         messages: buildUserMessage(text, media.images, media.videoDataUrl),
@@ -314,7 +318,7 @@ export const generateSummaryAI = createServerFn({ method: "POST" })
 
 
 export const generateLearningJourneyAI = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => JourneyInput.parse(data))
+  .validator((data: unknown) => JourneyInput.parse(data))
   .handler(async ({ data }) =>
     executeAi("learning-journey", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
@@ -372,7 +376,8 @@ Rules:
       try {
         const { object } = await generateObject({
           model,
-          maxOutputTokens: 4000,
+          maxTokens: 4000,
+          temperature: 0.2,
           schema: JourneyOutput,
           system:
             "You design personalized learning curriculums. Return ONLY a valid JSON object matching the requested schema. Do NOT wrap it in markdown code blocks. Do not add any text before or after the JSON.",
@@ -395,7 +400,7 @@ Rules:
 
 
 export const generateAutoNoteAI = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => AutoNoteInput.parse(data))
+  .validator((data: unknown) => AutoNoteInput.parse(data))
   .handler(async ({ data }) =>
     executeAi("auto-note", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
@@ -405,7 +410,7 @@ export const generateAutoNoteAI = createServerFn({ method: "POST" })
       const text = `Create study notes for "${data.title}" (${data.resourceType ?? "unknown"} resource).${hasMedia ? " Visual media is attached — base notes only on what is actually shown." : ""}\n\nContext:\n${trimmed}`;
       const { text: out } = await generateText({
         model,
-        maxOutputTokens: 1200,
+        maxTokens: 1200,
         system:
           "You create detailed study notes from provided content. Structure with clear headings, key takeaways, definitions, and important details. Use markdown formatting. Be thorough but avoid verbatim copying. If content is missing, state what is missing. Describe visual media only when it is actually visible.",
         messages: buildUserMessage(text, media.images, media.videoDataUrl),
@@ -423,7 +428,7 @@ export const generateAutoNoteAI = createServerFn({ method: "POST" })
  * are replayed so follow-ups keep continuity.
  */
 export const answerDoubtAI = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => DoubtInput.parse(data))
+  .validator((data: unknown) => DoubtInput.parse(data))
   .handler(async ({ data }) =>
     executeAi("doubt", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
@@ -447,7 +452,7 @@ export const answerDoubtAI = createServerFn({ method: "POST" })
 
       const { text } = await generateText({
         model,
-        maxOutputTokens: 500,
+        maxTokens: 500,
         system: `You are a focused, encouraging tutor for the study resource "${data.title}". Answer strictly from provided context and visible media. If the answer isn't in the material, say so honestly. Never infer unseen YouTube, Drive, Telegram, or local video content. Be concise and use markdown.`,
         messages,
       });
@@ -457,18 +462,18 @@ export const answerDoubtAI = createServerFn({ method: "POST" })
 
 
 export const suggestSortOrderAI = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => SortInput.parse(data))
+  .validator((data: unknown) => SortInput.parse(data))
   .handler(async ({ data }) =>
     executeAi("sort-order", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
       const resourceList = data.resources
         .map(
-          (r) => `${r.id}: ${r.name} (${r.type}${r.folderPath ? `, folder: ${r.folderPath}` : ""})`,
+          (r: any) => `${r.id}: ${r.name} (${r.type}${r.folderPath ? `, folder: ${r.folderPath}` : ""})`,
         )
         .join("\n");
       const { object } = await generateObject({
         model,
-        maxOutputTokens: 450,
+        maxTokens: 450,
         schema: z.object({
           orderedIds: z.array(z.string()),
           reasoning: z.string(),
@@ -491,7 +496,7 @@ export const suggestSortOrderAI = createServerFn({ method: "POST" })
  */
 
 export const studyAssistantAI = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => AssistantInput.parse(data))
+  .validator((data: unknown) => AssistantInput.parse(data))
   .handler(async ({ data }) =>
     executeAi("assistant", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
@@ -501,7 +506,7 @@ export const studyAssistantAI = createServerFn({ method: "POST" })
       }));
       const { object } = await generateObject({
         model,
-        maxOutputTokens: 700,
+        maxTokens: 700,
         schema: AssistantSchema,
         system:
           `You are the in-session study assistant for a personal study app. You can chat AND drive the app via actions.\n\n` +
@@ -522,5 +527,101 @@ export const studyAssistantAI = createServerFn({ method: "POST" })
         messages,
       });
       return object;
+    }),
+  );
+
+export const extractWebArticleAI = createServerFn({ method: "POST" })
+  .validator((data: unknown) => WebExtractionInput.parse(data))
+  .handler(async ({ data }) =>
+    executeAi("web-extraction", async () => {
+      const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
+      
+      let htmlContent = "";
+      try {
+        const response = await fetch(data.url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+          }
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        htmlContent = await response.text();
+      } catch (err) {
+        throw new Error(`Failed to fetch web page: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      const text = `I have fetched the HTML content of the following URL: ${data.url}\n\nRaw HTML Snippet (truncated):\n"""\n${htmlContent.slice(0, 15000)}\n"""\n\nPlease extract the main article content (ignoring navbars, sidebars, footers, and ads) and format it as clean, rich Markdown. Preserve images (as markdown image links), headers, lists, and links. Do not wrap in \`\`\`markdown tags. Return ONLY the Markdown text.`;
+      
+      const { text: mdText } = await generateText({
+        model,
+        maxTokens: 4000,
+        system: "You are an expert web scraper and data structurer. You output ONLY clean, rich Markdown representing the core article. No yapping or markdown code blocks.",
+        messages: buildUserMessage(text),
+      });
+      
+      try {
+        const cleanedMd = mdText.replace(/^```(markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
+        return { markdown: cleanedMd };
+      } catch (e) {
+        throw new Error("AI failed to extract the article.");
+      }
+    }),
+  );
+
+export const evaluateFeynmanAI = createServerFn({ method: "POST" })
+  .validator((data: unknown) => FeynmanInput.parse(data))
+  .handler(async ({ data }) =>
+    executeAi("feynman", async () => {
+      const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
+      const trimmedContext = data.context.slice(0, 15000);
+      const text = `Resource: ${data.title}\n\nOriginal Material Context:\n"""\n${trimmedContext}\n"""\n\nStudent's Spoken Explanation (Feynman Technique):\n"""\n${data.transcript}\n"""\n\nEvaluate the student's explanation. You are a strict but fair examiner. Grade them out of 10 based on accuracy, completeness, and clarity. Identify exact gaps or misconceptions in their understanding. Return a raw JSON object with 'score' (number) and 'feedback' (string). Do not wrap in markdown tags like \`\`\`json.`;
+      
+      const { text: jsonText } = await generateText({
+        model,
+        maxTokens: 600,
+        system: "You evaluate student explanations using the Feynman technique. Be strict and honest. Return ONLY a valid JSON object with 'score' and 'feedback'.",
+        prompt: text,
+      });
+      
+      try {
+        const jsonStr = jsonText.replace(/^```json\s*/, "").replace(/\s*```$/, "").trim();
+        const parsed = JSON.parse(jsonStr);
+        return {
+          score: Number(parsed.score) || 0,
+          feedback: parsed.feedback || "No feedback provided."
+        };
+      } catch (e) {
+        throw new Error("AI failed to return a valid JSON evaluation.");
+      }
+    }),
+  );
+
+export const generatePlannerAI = createServerFn({ method: "POST" })
+  .validator((data: unknown) => PlannerInput.parse(data))
+  .handler(async ({ data }) =>
+    executeAi("planner", async () => {
+      const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
+      const text = `Resources to schedule:\n${JSON.stringify(data.resources, null, 2)}\n\nUser Constraints:\n${data.prompt}`;
+      
+      try {
+        const { object } = await generateObject({
+          model,
+          maxTokens: 2000,
+          temperature: 0.2,
+          schema: PlannerSchema,
+          system: "You are an expert study planner. Distribute the provided resources into sequential days based on the user's constraints. You MUST return a single JSON object with a 'days' array. Each day must contain 'dayNumber' (number), 'title' (string), and 'resourceIds' (array of string IDs only, do not include the full resource object). Return ONLY valid JSON.",
+          messages: buildUserMessage(text),
+        });
+        
+        return object;
+      } catch (error: any) {
+        const fs = await import("fs");
+        fs.writeFileSync("ai-debug.log", JSON.stringify({
+          message: error.message,
+          text: error.text,
+          value: error.value,
+          cause: error.cause?.message
+        }, null, 2));
+        throw error;
+      }
     }),
   );

@@ -14,7 +14,7 @@ const TRANSCRIPT_MAX_CHARS = 10_000;
  * may fail from datacenter/cloud environments.
  */
 export const fetchYoutubeTranscriptServerFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => Input.parse(data))
+  .validator((data: unknown) => Input.parse(data))
   .handler(async ({ data }): Promise<{ transcript: string }> => {
     const snippets = await fetchTranscript(data.videoId);
     if (!snippets.length) {

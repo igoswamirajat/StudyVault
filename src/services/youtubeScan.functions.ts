@@ -37,7 +37,7 @@ function text(value: unknown): string {
 }
 
 export const scanYoutubePlaylistServerFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => Input.parse(data))
+  .validator((data: unknown) => Input.parse(data))
   .handler(async ({ data }): Promise<YoutubePlaylistScan> => {
     const playlist = await youtubeRequest(
       "playlists",
