@@ -47,8 +47,10 @@ export async function buildResourceContext(
     lines.push(`Tags: ${resource.tags.join(", ")}`);
   }
   if (resource.transcriptText?.trim()) {
+    const raw = resource.transcriptText.trim();
+    const cleanTranscript = raw.startsWith("[YTDLP_V1]\n") ? raw.replace("[YTDLP_V1]\n", "") : raw;
     lines.push(
-      `\nTranscript or source description:\n"""\n${resource.transcriptText.trim().slice(0, 100_000)}\n"""`,
+      `\nTranscript or source description:\n"""\n${cleanTranscript.slice(0, 100_000)}\n"""`,
     );
   } else if (resource.source === "youtube") {
     lines.push(
@@ -83,7 +85,7 @@ export async function buildResourceContext(
       const summary = await getOrCreateSummary(resource);
       const md = summary.contentMarkdown?.trim();
       if (md && md.length > 0) {
-        lines.push(`\nUser's summary note:\n"""\n${md.slice(0, 6000)}\n"""`);
+        lines.push(`\nUser's summary note:\n"""\n${md}\n"""`);
       }
     }
   } catch {
@@ -96,8 +98,8 @@ export async function buildResourceContext(
     const withText = notes.filter((n) => n.contentMarkdown?.trim());
     if (withText.length) {
       lines.push(`\nUser's other notes:`);
-      for (const n of withText.slice(0, 5)) {
-        lines.push(`  • ${n.title}: ${n.contentMarkdown.trim().slice(0, 800)}`);
+      for (const n of withText) {
+        lines.push(`  • ${n.title}:\n${n.contentMarkdown.trim()}\n`);
       }
     }
   } catch {

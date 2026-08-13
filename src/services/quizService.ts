@@ -20,6 +20,7 @@ export async function generateQuizForResource(
   let source: "ai" | "manual" = "ai";
   const result = await aiGenerateQuiz(resource.name, context, resource.type, opts?.count ?? 5);
   questions = result.questions;
+
   const quiz: Quiz = { resourceId: resource.id, questions, generatedAt: Date.now(), source: "ai" };
   // Replace any existing quiz for this resource atomically — if the delete
   // succeeded but the add failed (bad shape, quota, tab closed), the user would

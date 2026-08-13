@@ -55,11 +55,7 @@ export function QuizTabContent({ resourceId }: Props) {
       setAnswers([]);
       setDone(false);
     } catch (err) {
-      if (err instanceof Error && err.message.includes("parse")) {
-        toast.info("Not enough context! Add more notes or a summary first.");
-      } else {
-        toast.error(err instanceof Error ? err.message : "Failed to generate AI quiz");
-      }
+      toast.error(err instanceof Error ? err.message : "Failed to generate AI quiz");
       if (!quiz) setQuiz(null); // Keep old quiz if it failed to regenerate
     } finally {
       setLoading(false);

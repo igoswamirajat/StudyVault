@@ -251,24 +251,156 @@ function allowedMedia(
 }
 
 
+function cleanJsonResponse(rawText: string): any {
+  let clean = rawText
+    .replace(/^```(json)?\s*/gi, "")
+    .replace(/```\s*$/g, "")
+    .trim();
+
+  // Strip trailing commas before closing braces/brackets
+  clean = clean.replace(/,\s*([}\]])/g, "$1");
+
+  const firstBrace = clean.indexOf("{");
+  const firstBracket = clean.indexOf("[");
+
+  let jsonStr = clean;
+  if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+    const lastBrace = clean.lastIndexOf("}");
+    if (lastBrace > firstBrace) {
+      jsonStr = clean.slice(firstBrace, lastBrace + 1);
+    }
+  } else if (firstBracket !== -1) {
+    const lastBracket = clean.lastIndexOf("]");
+    if (lastBracket > firstBracket) {
+      jsonStr = clean.slice(firstBracket, lastBracket + 1);
+    }
+  }
+
+  return JSON.parse(jsonStr);
+}
+
+function parseAndSanitizeQuiz(rawText: string): { questions: Array<{ question: string; options: string[]; correctIndex: number; explanation: string }> } {
+  let parsed: any;
+  try {
+    parsed = cleanJsonResponse(rawText);
+  } catch (e) {
+    console.error("[Quiz JSON Parse Error]:", e, "Raw text:", rawText);
+    throw new Error(`AI generated a response that could not be parsed as valid JSON. Please try again.`);
+  }
+
+  const rawQuestions = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.questions)
+      ? parsed.questions
+      : Array.isArray(parsed?.quiz)
+        ? parsed.quiz
+        : [];
+
+  if (rawQuestions.length === 0) {
+    throw new Error("AI response did not contain any valid quiz questions. Please try again.");
+  }
+
+  const questions = rawQuestions.map((q: any, idx: number) => {
+    const question = String(q.question || q.q || q.title || `Question ${idx + 1}`).trim();
+    let options: string[] = Array.isArray(q.options)
+      ? q.options.map(String)
+      : Array.isArray(q.choices)
+        ? q.choices.map(String)
+        : ["Option A", "Option B", "Option C", "Option D"];
+
+    while (options.length < 4) {
+      options.push(`Option ${String.fromCharCode(65 + options.length)}`);
+    }
+    if (options.length > 4) {
+      options = options.slice(0, 4);
+    }
+
+    let correctIndex =
+      typeof q.correctIndex === "number"
+        ? q.correctIndex
+        : typeof q.correct_index === "number"
+          ? q.correct_index
+          : parseInt(String(q.correctIndex ?? q.correct_index ?? q.answer ?? 0), 10);
+
+    if (isNaN(correctIndex) || correctIndex < 0 || correctIndex >= options.length) {
+      correctIndex = 0;
+    }
+
+    const explanation = String(q.explanation || q.reason || q.rationale || "").trim();
+
+    return {
+      question,
+      options,
+      correctIndex,
+      explanation,
+    };
+  });
+
+  return { questions };
+}
+
+function parseAndSanitizeFlashcards(rawText: string): { cards: Array<{ front: string; back: string; hint?: string }> } {
+  let parsed: any;
+  try {
+    parsed = cleanJsonResponse(rawText);
+  } catch (e) {
+    console.error("[Flashcards JSON Parse Error]:", e, "Raw text:", rawText);
+    throw new Error(`AI generated a response that could not be parsed as valid JSON. Please try again.`);
+  }
+
+  const rawCards = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.cards)
+      ? parsed.cards
+      : Array.isArray(parsed?.flashcards)
+        ? parsed.flashcards
+        : [];
+
+  if (rawCards.length === 0) {
+    throw new Error("AI response did not contain any valid flashcards. Please try again.");
+  }
+
+  const cards = rawCards
+    .map((c: any, idx: number) => {
+      const front = String(c.front || c.question || c.prompt || `Flashcard ${idx + 1}`).trim();
+      const back = String(c.back || c.answer || c.response || "").trim();
+      const hint = c.hint ? String(c.hint).trim() : undefined;
+      return { front, back, hint };
+    })
+    .filter((c: any) => c.front.length > 0 && c.back.length > 0);
+
+  return { cards };
+}
+
 export const generateQuizAI = createServerFn({ method: "POST" })
   .validator((data: unknown) => AiInput.parse(data))
   .handler(async ({ data }) =>
     executeAi("quiz", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
-      const trimmed = data.contentMarkdown.slice(0, 8000);
+      const trimmed = data.contentMarkdown.slice(0, 120000);
       const media = allowedMedia(data.provider, data.model, data.images, data.videoDataUrl);
       const hasMedia = Boolean(media.images?.length || media.videoDataUrl);
-      const text = `Resource: ${data.title}\nType: ${data.resourceType ?? "unknown"}\n\nContext, notes & summary:\n"""\n${trimmed}\n"""\n${hasMedia ? "\nVisual media is attached — use only what can actually be seen.\n" : ""}\nGenerate ${data.count ?? 5} questions that test the most important concepts.`;
-      const { object } = await generateObject({
+      const text = `Resource: ${data.title}\nType: ${data.resourceType ?? "unknown"}\n\nContext, notes & summary:\n"""\n${trimmed}\n"""\n${hasMedia ? "\nVisual media is attached — use only what can actually be seen.\n" : ""}\nGenerate ${data.count ?? 5} multiple choice quiz questions based on the provided notes and material.
+
+Return ONLY a raw JSON object with this exact shape:
+{
+  "questions": [
+    {
+      "question": "Question text here?",
+      "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+      "correctIndex": 0,
+      "explanation": "Brief explanation."
+    }
+  ]
+}`;
+      const { text: out } = await generateText({
         model,
-        maxTokens: 1200,
-        schema: QuizSchema,
+        maxOutputTokens: 16000,
         system:
-          "You generate concise multiple-choice study quizzes. Always 4 options, exactly one correct. Base questions only on provided notes/summary and visible media. IMPORTANT: If the provided context is completely empty or insufficient to create valid questions, you MUST return an empty array for questions ([]). Respond STRICTLY with a raw JSON object matching the requested schema. Do NOT wrap the JSON in markdown blocks (no ```json).",
+          "You generate concise multiple-choice study quizzes. Always provide 4 options and exactly one zero-indexed integer correctIndex (0, 1, 2, or 3). Base questions on ALL provided notes, summary, transcript, and visible media. Return ONLY a raw JSON object. Do NOT wrap the output in markdown code blocks.",
         messages: buildUserMessage(text, media.images, media.videoDataUrl),
       });
-      return object;
+      return parseAndSanitizeQuiz(out);
     }),
   );
 
@@ -277,19 +409,29 @@ export const generateFlashcardsAI = createServerFn({ method: "POST" })
   .handler(async ({ data }) =>
     executeAi("flashcards", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
-      const trimmed = data.contentMarkdown.slice(0, 8000);
+      const trimmed = data.contentMarkdown.slice(0, 120000);
       const media = allowedMedia(data.provider, data.model, data.images, data.videoDataUrl);
       const hasMedia = Boolean(media.images?.length || media.videoDataUrl);
-      const text = `Resource: ${data.title}\nType: ${data.resourceType ?? "unknown"}\n\nSource context, notes & highlights:\n"""\n${trimmed}\n"""\n${hasMedia ? "\nVisual media is attached — incorporate only concepts you can see.\n" : ""}\nGenerate ${data.count ?? 8} flashcards. Front = clear prompt or cloze-style question. Back = concise answer (1-2 sentences).`;
-      const { object } = await generateObject({
+      const text = `Resource: ${data.title}\nType: ${data.resourceType ?? "unknown"}\n\nSource context, notes & highlights:\n"""\n${trimmed}\n"""\n${hasMedia ? "\nVisual media is attached — incorporate only concepts you can see.\n" : ""}\nGenerate ${data.count ?? 8} flashcards.
+
+Return ONLY a raw JSON object with this exact shape:
+{
+  "cards": [
+    {
+      "front": "Question or prompt",
+      "back": "Concise answer",
+      "hint": "Optional hint"
+    }
+  ]
+}`;
+      const { text: out } = await generateText({
         model,
-        maxTokens: 1200,
-        schema: FlashcardSchema,
+        maxOutputTokens: 16000,
         system:
-          "You create high-quality study flashcards using the minimum-information principle: each card asks one atomic question. Use the user's notes/highlights and visible media as the source of truth. IMPORTANT: If the provided context is completely empty or insufficient to create valid flashcards, you MUST return an empty array for cards ([]). Respond STRICTLY with a raw JSON object matching the requested schema. Do NOT wrap the JSON in markdown blocks (no ```json).",
+          "You create high-quality study flashcards using the minimum-information principle. Use ALL provided notes, highlights, transcript, and visible media. Return ONLY a raw JSON object. Do NOT wrap the output in markdown code blocks.",
         messages: buildUserMessage(text, media.images, media.videoDataUrl),
       });
-      return object;
+      return parseAndSanitizeFlashcards(out);
     }),
   );
 
@@ -299,13 +441,13 @@ export const generateSummaryAI = createServerFn({ method: "POST" })
   .handler(async ({ data }) =>
     executeAi("summary", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
-      const trimmed = data.content.slice(0, 12000);
+      const trimmed = data.content.slice(0, 120000);
       const media = allowedMedia(data.provider, data.model, data.images, data.videoDataUrl);
       const hasMedia = Boolean(media.images?.length || media.videoDataUrl);
       const text = `Summarize the following study material for "${data.title}".${hasMedia ? " Visual media is attached — describe only what is actually shown, not just the title." : ""}\n\nContext:\n${trimmed}`;
       const { text: out } = await generateText({
         model,
-        maxTokens: 900,
+        maxOutputTokens: 8000,
         system:
           "You create concise, well-structured study summaries in markdown. Use headings, bullet points, and bold for key terms. Focus on the most important concepts. If source context is insufficient, say that clearly instead of inventing details. Ground any visual claims only in visible media.",
         messages: buildUserMessage(text, media.images, media.videoDataUrl),
@@ -316,6 +458,69 @@ export const generateSummaryAI = createServerFn({ method: "POST" })
 
 /* ------------------------------------------------- Learning Journey --- */
 
+
+function parseAndSanitizeLearningJourney(rawText: string): { phases: any[]; startingPoint?: string; reasoning: string } {
+  let parsed: any;
+  try {
+    parsed = cleanJsonResponse(rawText);
+  } catch (e) {
+    console.error("[Journey JSON Parse Error]:", e, "Raw text:", rawText);
+    return { phases: [], reasoning: "Failed to parse AI curriculum response." };
+  }
+  const phases = Array.isArray(parsed?.phases) ? parsed.phases : Array.isArray(parsed) ? parsed : [];
+  const reasoning = String(parsed?.reasoning || "Generated curriculum based on prerequisites and upload order.").trim();
+  const startingPoint = parsed?.startingPoint ? String(parsed.startingPoint) : undefined;
+  return { phases, startingPoint, reasoning };
+}
+
+function parseAndSanitizeSortOrder(rawText: string): { orderedIds: string[]; reasoning: string } {
+  let parsed: any;
+  try {
+    parsed = cleanJsonResponse(rawText);
+  } catch (e) {
+    console.error("[Sort JSON Parse Error]:", e, "Raw text:", rawText);
+    return { orderedIds: [], reasoning: "Failed to parse AI sort order response." };
+  }
+  const orderedIds = Array.isArray(parsed?.orderedIds) ? parsed.orderedIds.map(String) : Array.isArray(parsed) ? parsed.map(String) : [];
+  const reasoning = String(parsed?.reasoning || "Sorted based on prerequisites and folder structure.").trim();
+  return { orderedIds, reasoning };
+}
+
+function parseAndSanitizeAssistant(rawText: string): { reply: string; actions: any[] } {
+  let parsed: any;
+  try {
+    parsed = cleanJsonResponse(rawText);
+  } catch (e) {
+    return { reply: rawText.trim(), actions: [] };
+  }
+  const reply = String(parsed?.reply || parsed?.response || rawText).trim();
+  const actions = Array.isArray(parsed?.actions) ? parsed.actions : [];
+  return { reply, actions };
+}
+
+function parseAndSanitizeFeynman(rawText: string): { score: number; feedback: string } {
+  let parsed: any;
+  try {
+    parsed = cleanJsonResponse(rawText);
+  } catch (e) {
+    return { score: 5, feedback: rawText.trim() };
+  }
+  const score = Math.max(0, Math.min(10, Number(parsed?.score) || 5));
+  const feedback = String(parsed?.feedback || "Evaluation completed.").trim();
+  return { score, feedback };
+}
+
+function parseAndSanitizePlanner(rawText: string): { days: any[] } {
+  let parsed: any;
+  try {
+    parsed = cleanJsonResponse(rawText);
+  } catch (e) {
+    console.error("[Planner JSON Parse Error]:", e, "Raw text:", rawText);
+    return { days: [] };
+  }
+  const days = Array.isArray(parsed?.days) ? parsed.days : Array.isArray(parsed) ? parsed : [];
+  return { days };
+}
 
 export const generateLearningJourneyAI = createServerFn({ method: "POST" })
   .validator((data: unknown) => JourneyInput.parse(data))
@@ -359,42 +564,32 @@ ${Object.entries(progress)
   .map(([k, v]) => `${k}: ${v}`)
   .join("\n") || "(no progress recorded)"}
 
-Create a learning journey with 3-6 phases. Each phase should have:
-1. A clear title (e.g., "Phase 1: Foundations", "Phase 2: Core Concepts", "Phase 3: Advanced Applications")
-2. A brief description of what the phase covers
-3. A list of specific resources assigned to that phase
-4. For each resource: status (locked/available/in-progress/completed) based on progress and prerequisites
-
-Rules:
-- Order phases logically: fundamentals → core concepts → practice → advanced → synthesis.
-- IMPORTANT: You MUST balance BOTH the logical knowledge progression (prerequisites) AND the order in which the user uploaded the resources (upload date). If a resource was uploaded earlier, try to introduce it earlier unless a strict dependency prevents it.
-- Respect folder structure as implicit grouping (items in same folder = same topic).
-- Mark resources as "completed" if progress shows completed, "in-progress" if started, "available" if unlocked but not started, "locked" if prerequisites not met.
-- Provide a short reasoning for the journey design, specifically explaining how you balanced knowledge dependencies with their original upload order.
+Create a learning journey with 3-6 phases.
+Return ONLY a raw JSON object with this exact shape:
+{
+  "phases": [
+    {
+      "title": "Phase 1: Foundations",
+      "description": "Description of phase",
+      "resources": [
+        { "id": "resource_id_here", "title": "Resource Name", "status": "available", "reason": "Reason for inclusion" }
+      ]
+    }
+  ],
+  "startingPoint": "Where to start",
+  "reasoning": "Reasoning for journey design"
+}
 `;
 
-      try {
-        const { object } = await generateObject({
-          model,
-          maxTokens: 4000,
-          temperature: 0.2,
-          schema: JourneyOutput,
-          system:
-            "You design personalized learning curriculums. Return ONLY a valid JSON object matching the requested schema. Do NOT wrap it in markdown code blocks. Do not add any text before or after the JSON.",
-          prompt,
-        });
-        return object;
-      } catch (error: any) {
-        // Log the exact parsing error and the raw text received
-        const fs = await import("fs");
-        fs.writeFileSync("ai-debug.log", JSON.stringify({
-          message: error.message,
-          text: error.text,
-          value: error.value,
-          cause: error.cause?.message
-        }, null, 2));
-        throw error;
-      }
+      const { text: out } = await generateText({
+        model,
+        maxOutputTokens: 16000,
+        temperature: 0.2,
+        system:
+          "You design personalized learning curriculums. Return ONLY a valid JSON object matching the requested schema. Do NOT wrap it in markdown code blocks.",
+        prompt,
+      });
+      return parseAndSanitizeLearningJourney(out);
     }),
   );
 
@@ -404,13 +599,13 @@ export const generateAutoNoteAI = createServerFn({ method: "POST" })
   .handler(async ({ data }) =>
     executeAi("auto-note", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
-      const trimmed = data.content.slice(0, 12000);
+      const trimmed = data.content.slice(0, 120000);
       const media = allowedMedia(data.provider, data.model, data.images, data.videoDataUrl);
       const hasMedia = Boolean(media.images?.length || media.videoDataUrl);
       const text = `Create study notes for "${data.title}" (${data.resourceType ?? "unknown"} resource).${hasMedia ? " Visual media is attached — base notes only on what is actually shown." : ""}\n\nContext:\n${trimmed}`;
       const { text: out } = await generateText({
         model,
-        maxTokens: 1200,
+        maxOutputTokens: 8000,
         system:
           "You create detailed study notes from provided content. Structure with clear headings, key takeaways, definitions, and important details. Use markdown formatting. Be thorough but avoid verbatim copying. If content is missing, state what is missing. Describe visual media only when it is actually visible.",
         messages: buildUserMessage(text, media.images, media.videoDataUrl),
@@ -437,7 +632,7 @@ export const answerDoubtAI = createServerFn({ method: "POST" })
       const messages: ModelMessage[] = [];
       const history = data.history
         .slice(-8)
-        .map((turn) => ({ role: turn.role, content: turn.content.slice(0, 1800) }));
+        .map((turn) => ({ role: turn.role, content: turn.content.slice(0, 20000) }));
       const currentIndex = [...history].reverse().findIndex((turn) => turn.role === "user");
       const currentUserIndex =
         currentIndex === -1 ? history.length - 1 : history.length - 1 - currentIndex;
@@ -447,12 +642,12 @@ export const answerDoubtAI = createServerFn({ method: "POST" })
       for (const [index, turn] of history.entries()) {
         if (index !== currentUserIndex) messages.push({ role: turn.role, content: turn.content });
       }
-      const groundText = `You are tutoring me on this study material.\n\nContext:\n"""\n${data.context.slice(0, 7000)}\n"""\n${hasMedia ? "\nVisual media is attached — use only what you can see.\n" : ""}\nCurrent question: ${currentQuestion}`;
+      const groundText = `You are tutoring me on this study material.\n\nContext:\n"""\n${data.context.slice(0, 120000)}\n"""\n${hasMedia ? "\nVisual media is attached — use only what you can see.\n" : ""}\nCurrent question: ${currentQuestion}`;
       messages.push(...buildUserMessage(groundText, media.images, media.videoDataUrl));
 
       const { text } = await generateText({
         model,
-        maxTokens: 500,
+        maxOutputTokens: 8000,
         system: `You are a focused, encouraging tutor for the study resource "${data.title}". Answer strictly from provided context and visible media. If the answer isn't in the material, say so honestly. Never infer unseen YouTube, Drive, Telegram, or local video content. Be concise and use markdown.`,
         messages,
       });
@@ -471,18 +666,14 @@ export const suggestSortOrderAI = createServerFn({ method: "POST" })
           (r: any) => `${r.id}: ${r.name} (${r.type}${r.folderPath ? `, folder: ${r.folderPath}` : ""})`,
         )
         .join("\n");
-      const { object } = await generateObject({
+      const { text: out } = await generateText({
         model,
-        maxTokens: 450,
-        schema: z.object({
-          orderedIds: z.array(z.string()),
-          reasoning: z.string(),
-        }),
+        maxOutputTokens: 16000,
         system:
-          "You suggest optimal study order for resources based on their names, types, and folder structure. Consider logical progression (basics before advanced), topic grouping, and content dependencies.",
-        prompt: `Suggest the best study order for these resources:\n\n${resourceList}\n\nReturn the IDs in suggested study order.`,
+          "You suggest optimal study order for resources based on their names, types, and folder structure. Return ONLY a raw JSON object with 'orderedIds' (array of string IDs) and 'reasoning' (string). Do NOT wrap in markdown code blocks.",
+        prompt: `Suggest the best study order for these resources:\n\n${resourceList}\n\nReturn ONLY a JSON object with 'orderedIds' and 'reasoning'.`,
       });
-      return object;
+      return parseAndSanitizeSortOrder(out);
     }),
   );
 
@@ -502,12 +693,11 @@ export const studyAssistantAI = createServerFn({ method: "POST" })
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
       const messages: ModelMessage[] = data.history.slice(-8).map((t) => ({
         role: t.role,
-        content: t.content.slice(0, 1800),
+        content: t.content.slice(0, 20000),
       }));
-      const { object } = await generateObject({
+      const { text: out } = await generateText({
         model,
-        maxTokens: 700,
-        schema: AssistantSchema,
+        maxOutputTokens: 16000,
         system:
           `You are the in-session study assistant for a personal study app. You can chat AND drive the app via actions.\n\n` +
           `Available actions and when to use them:\n` +
@@ -523,10 +713,11 @@ export const studyAssistantAI = createServerFn({ method: "POST" })
           `Rules: Only emit actions the user actually asked for. Prefer resolving names from the provided session context. ` +
           `Keep 'reply' short and friendly; it is shown in the chat. If the user only asks a question, return an empty actions array. ` +
           `Do not invent resource names that aren't in the context.\n\n` +
-          `Current session context:\n"""\n${data.sessionContext.slice(0, 8000)}\n"""`,
+          `Return ONLY a raw JSON object with 'reply' (string) and 'actions' (array). Do NOT wrap in markdown code blocks.\n\n` +
+          `Current session context:\n"""\n${data.sessionContext.slice(0, 120000)}\n"""`,
         messages,
       });
-      return object;
+      return parseAndSanitizeAssistant(out);
     }),
   );
 
@@ -549,11 +740,11 @@ export const extractWebArticleAI = createServerFn({ method: "POST" })
         throw new Error(`Failed to fetch web page: ${err instanceof Error ? err.message : String(err)}`);
       }
 
-      const text = `I have fetched the HTML content of the following URL: ${data.url}\n\nRaw HTML Snippet (truncated):\n"""\n${htmlContent.slice(0, 15000)}\n"""\n\nPlease extract the main article content (ignoring navbars, sidebars, footers, and ads) and format it as clean, rich Markdown. Preserve images (as markdown image links), headers, lists, and links. Do not wrap in \`\`\`markdown tags. Return ONLY the Markdown text.`;
+      const text = `I have fetched the HTML content of the following URL: ${data.url}\n\nRaw HTML Snippet (truncated):\n"""\n${htmlContent.slice(0, 200000)}\n"""\n\nPlease extract the main article content (ignoring navbars, sidebars, footers, and ads) and format it as clean, rich Markdown. Preserve images (as markdown image links), headers, lists, and links. Do not wrap in \`\`\`markdown tags. Return ONLY the Markdown text.`;
       
       const { text: mdText } = await generateText({
         model,
-        maxTokens: 4000,
+        maxOutputTokens: 16000,
         system: "You are an expert web scraper and data structurer. You output ONLY clean, rich Markdown representing the core article. No yapping or markdown code blocks.",
         messages: buildUserMessage(text),
       });
@@ -572,26 +763,17 @@ export const evaluateFeynmanAI = createServerFn({ method: "POST" })
   .handler(async ({ data }) =>
     executeAi("feynman", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
-      const trimmedContext = data.context.slice(0, 15000);
+      const trimmedContext = data.context.slice(0, 120000);
       const text = `Resource: ${data.title}\n\nOriginal Material Context:\n"""\n${trimmedContext}\n"""\n\nStudent's Spoken Explanation (Feynman Technique):\n"""\n${data.transcript}\n"""\n\nEvaluate the student's explanation. You are a strict but fair examiner. Grade them out of 10 based on accuracy, completeness, and clarity. Identify exact gaps or misconceptions in their understanding. Return a raw JSON object with 'score' (number) and 'feedback' (string). Do not wrap in markdown tags like \`\`\`json.`;
       
       const { text: jsonText } = await generateText({
         model,
-        maxTokens: 600,
+        maxOutputTokens: 8000,
         system: "You evaluate student explanations using the Feynman technique. Be strict and honest. Return ONLY a valid JSON object with 'score' and 'feedback'.",
         prompt: text,
       });
       
-      try {
-        const jsonStr = jsonText.replace(/^```json\s*/, "").replace(/\s*```$/, "").trim();
-        const parsed = JSON.parse(jsonStr);
-        return {
-          score: Number(parsed.score) || 0,
-          feedback: parsed.feedback || "No feedback provided."
-        };
-      } catch (e) {
-        throw new Error("AI failed to return a valid JSON evaluation.");
-      }
+      return parseAndSanitizeFeynman(jsonText);
     }),
   );
 
@@ -600,28 +782,15 @@ export const generatePlannerAI = createServerFn({ method: "POST" })
   .handler(async ({ data }) =>
     executeAi("planner", async () => {
       const model = getProvider(data.provider, data.endpoint, data.apiKey, data.model);
-      const text = `Resources to schedule:\n${JSON.stringify(data.resources, null, 2)}\n\nUser Constraints:\n${data.prompt}`;
+      const text = `Resources to schedule:\n${JSON.stringify(data.resources, null, 2)}\n\nUser Constraints:\n${data.prompt}\n\nReturn ONLY a raw JSON object with a 'days' array. Each day must contain 'dayNumber' (number), 'title' (string), and 'resourceIds' (array of string IDs only).`;
       
-      try {
-        const { object } = await generateObject({
-          model,
-          maxTokens: 2000,
-          temperature: 0.2,
-          schema: PlannerSchema,
-          system: "You are an expert study planner. Distribute the provided resources into sequential days based on the user's constraints. You MUST return a single JSON object with a 'days' array. Each day must contain 'dayNumber' (number), 'title' (string), and 'resourceIds' (array of string IDs only, do not include the full resource object). Return ONLY valid JSON.",
-          messages: buildUserMessage(text),
-        });
-        
-        return object;
-      } catch (error: any) {
-        const fs = await import("fs");
-        fs.writeFileSync("ai-debug.log", JSON.stringify({
-          message: error.message,
-          text: error.text,
-          value: error.value,
-          cause: error.cause?.message
-        }, null, 2));
-        throw error;
-      }
+      const { text: out } = await generateText({
+        model,
+        maxOutputTokens: 16000,
+        temperature: 0.2,
+        system: "You are an expert study planner. Distribute the provided resources into sequential days based on the user's constraints. Return ONLY a single raw JSON object with a 'days' array.",
+        messages: buildUserMessage(text),
+      });
+      return parseAndSanitizePlanner(out);
     }),
   );

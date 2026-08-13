@@ -10,14 +10,15 @@ export async function fetchAndCacheTranscript(resourceId: string): Promise<void>
   const db = getDb();
   const resource = await db.resources.get(resourceId);
   if (!resource?.youtubeVideoId) return;
-  if (resource.transcriptText?.trim()) return; // already cached
+  const PREFIX = "[YTDLP_V1]";
+  if (resource.transcriptText?.startsWith(PREFIX)) return; // already fetched the true transcript
 
   try {
     const { transcript } = await fetchYoutubeTranscriptServerFn({
       data: { videoId: resource.youtubeVideoId },
     });
     if (transcript) {
-      await db.resources.update(resourceId, { transcriptText: transcript });
+      await db.resources.update(resourceId, { transcriptText: `${PREFIX}\n${transcript}` });
     }
   } catch {
     // Transcript extraction failed (datacenter IP, no captions, etc.)

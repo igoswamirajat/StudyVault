@@ -166,10 +166,10 @@ export interface ChatTurn {
   content: string;
 }
 
-export function trimChatHistory(history: ChatTurn[], maxTurns = 8, maxChars = 7000): ChatTurn[] {
+export function trimChatHistory(history: ChatTurn[], maxTurns = 8, maxChars = 100000): ChatTurn[] {
   const turns = history.slice(-maxTurns).map((turn) => ({
     role: turn.role,
-    content: turn.content.slice(0, 1800),
+    content: turn.content.slice(0, 20000),
   }));
   while (turns.length > 1 && JSON.stringify(turns).length > maxChars) turns.shift();
   return turns;

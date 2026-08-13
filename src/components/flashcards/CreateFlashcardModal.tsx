@@ -57,8 +57,8 @@ export function CreateFlashcardModal({ open, onOpenChange }: Props) {
       toast.success(`Generated ${added.length} flashcards`, { id: tid });
       setNotesText("");
       onOpenChange(false);
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
       toast.error("Failed to generate flashcards. Make sure your AI is configured.", { id: tid });
     } finally {
       setIsGenerating(false);

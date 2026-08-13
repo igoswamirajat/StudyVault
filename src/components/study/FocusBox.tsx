@@ -3,7 +3,7 @@ import { Plus, Target, Trash2, X, GripVertical, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDraggable } from "@/hooks/useDraggable";
 import { format } from "date-fns";
-import { getDb } from "@/db/schema";
+import { getDb, type Resource } from "@/db/schema";
 import { setStatus } from "@/services/progressService";
 import { toast } from "sonner";
 
@@ -93,7 +93,7 @@ export function FocusBox() {
       if (toggled && toggled.done && toggled.referenceId && (toggled.type === "day" || toggled.type === "folder")) {
         (async () => {
           const db = getDb();
-          let toComplete = [];
+          let toComplete: Resource[] = [];
           if (toggled.type === "day") {
             toComplete = await db.resources.where("dayAssignment").equals(Number(toggled.referenceId)).toArray();
           } else if (toggled.type === "folder") {
